@@ -1,3 +1,4 @@
+
 # Usar versión estable de Debian con compiladores necesarios
 FROM python:3.9-slim-bullseye
 
@@ -8,6 +9,7 @@ RUN echo "deb http://deb.debian.org/debian bullseye main contrib non-free" > /et
     apt-get update -o Acquire::Check-Valid-Until=false && \
     apt-get install -y --no-install-recommends \
     ffmpeg \
+    wget \
     libsm6 \
     libxext6 \
     libgl1 \
