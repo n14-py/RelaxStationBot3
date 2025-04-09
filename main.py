@@ -38,16 +38,47 @@ class GestorContenido:
         os.makedirs(self.media_cache_dir, exist_ok=True)
         self.medios = self.cargar_medios()
     
-    def descargar_archivo(self, url, tipo):
+    def procesar_imagen(self, url):
         try:
             nombre_hash = hashlib.md5(url.encode()).hexdigest()
-            extension = os.path.splitext(urlparse(url).path)[1].lower()
-            ruta_local = os.path.join(self.media_cache_dir, f"{nombre_hash}{extension}")
+            ruta_local = os.path.join(self.media_cache_dir, f"{nombre_hash}.jpg")
             
             if os.path.exists(ruta_local):
                 return ruta_local
 
-            logging.info(f"⬇️ Descargando {tipo}: {url}")
+            logging.info(f"⬇️ Procesando imagen: {url}")
+            temp_path = os.path.join(self.media_cache_dir, f"temp_{nombre_hash}")
+            
+            # Descargar imagen original
+            with requests.get(url, stream=True, timeout=30) as r:
+                r.raise_for_status()
+                with open(temp_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            
+            # Convertir a JPEG con ffmpeg
+            subprocess.run([
+                "ffmpeg", "-y", "-i", temp_path,
+                "-vf", "scale=1280:720",
+                "-q:v", "2",
+                ruta_local
+            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            os.remove(temp_path)
+            return ruta_local
+        except Exception as e:
+            logging.error(f"Error procesando imagen: {str(e)}")
+            return None
+
+    def descargar_musica(self, url):
+        try:
+            nombre_hash = hashlib.md5(url.encode()).hexdigest()
+            ruta_local = os.path.join(self.media_cache_dir, f"{nombre_hash}.mp3")
+            
+            if os.path.exists(ruta_local):
+                return ruta_local
+
+            logging.info(f"⬇️ Descargando música: {url}")
             with requests.get(url, stream=True, timeout=30) as r:
                 r.raise_for_status()
                 with open(ruta_local, 'wb') as f:
@@ -55,7 +86,7 @@ class GestorContenido:
                         f.write(chunk)
             return ruta_local
         except Exception as e:
-            logging.error(f"Error descargando {tipo}: {str(e)}")
+            logging.error(f"Error descargando música: {str(e)}")
             return None
 
     def cargar_medios(self):
@@ -66,11 +97,11 @@ class GestorContenido:
             
             # Procesar imágenes
             for img in datos['imagenes']:
-                img['local_path'] = self.descargar_archivo(img['url'], 'imagen')
+                img['local_path'] = self.procesar_imagen(img['url'])
             
             # Procesar música
             for musica in datos['musica']:
-                musica['local_path'] = self.descargar_archivo(musica['url'], 'música')
+                musica['local_path'] = self.descargar_musica(musica['url'])
             
             return datos
         except Exception as e:
@@ -79,7 +110,7 @@ class GestorContenido:
 
 class YouTubeManager:
     def __init__(self):
-        self.youtube = self.autenticar()
+        self.youtube = build('youtube', 'v3', credentials=self.autenticar())
     
     def autenticar(self):
         creds = Credentials(
@@ -91,23 +122,18 @@ class YouTubeManager:
             scopes=['https://www.googleapis.com/auth/youtube']
         )
         creds.refresh(Request())
-        return build('youtube', 'v3', credentials=creds)
+        return creds
     
     def crear_transmision(self, titulo, imagen_path):
         try:
-            # Determinar MIME type
-            mime_type, _ = mimetypes.guess_type(imagen_path)
-            if not mime_type:
-                mime_type = 'image/jpeg'
-
             # Crear broadcast
             broadcast = self.youtube.liveBroadcasts().insert(
                 part="snippet,status",
                 body={
                     "snippet": {
                         "title": titulo,
-                        "description": "🎵 Música continua 24/7 • Mezcla aleatoria profesional\n🔔 Activa las notificaciones\n👍 Déjanos tu like si disfrutas el contenido",
-                        "scheduledStartTime": (datetime.utcnow() + timedelta(minutes=1)).isoformat() + "Z"
+                        "description": "🎵 Música continua 24/7 • Mezcla profesional\n🔔 Activa las notificaciones\n👍 Déjanos tu like",
+                        "scheduledStartTime": (datetime.utcnow() + timedelta(seconds=30)).isoformat() + "Z"
                     },
                     "status": {
                         "privacyStatus": "public",
@@ -123,7 +149,7 @@ class YouTubeManager:
                 part="snippet,cdn",
                 body={
                     "snippet": {
-                        "title": "Transmisión de música continua"
+                        "title": "Stream de música continua"
                     },
                     "cdn": {
                         "format": "1080p",
@@ -145,7 +171,7 @@ class YouTubeManager:
             self.youtube.thumbnails().set(
                 videoId=broadcast['id'],
                 media_body=imagen_path,
-                media_mime_type=mime_type
+                media_mime_type='image/jpeg'
             ).execute()
 
             return {
@@ -170,21 +196,17 @@ class YouTubeManager:
             return False
 
 def generar_titulo(imagen):
-    palabras = imagen['name'].split()
-    keywords = [p.capitalize() for p in palabras if len(p) > 3][:3]
-    return f"Música Relajante • {' '.join(keywords)} • Stream Continuo"
+    return f"Música Continua • {imagen['name'].title()} • 24/7"
 
 def manejar_transmision(gestor, youtube, imagen):
+    ffmpeg_process = None
     try:
-        # Generar título
-        titulo = generar_titulo(imagen)
-        
         # Crear transmisión
-        stream_info = youtube.crear_transmision(titulo, imagen['local_path'])
+        stream_info = youtube.crear_transmision(generar_titulo(imagen), imagen['local_path'])
         if not stream_info:
             return False
 
-        # Configurar FIFO para audio
+        # Configurar FIFO
         fifo_path = os.path.join(gestor.media_cache_dir, "audio_fifo")
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
@@ -199,11 +221,10 @@ def manejar_transmision(gestor, youtube, imagen):
             "-i", imagen['local_path'],
             "-f", "mp3",
             "-i", fifo_path,
-            "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1",
+            "-vf", "format=yuv420p,scale=1280:720",
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-tune", "stillimage",
-            "-pix_fmt", "yuv420p",
             "-b:v", "3000k",
             "-maxrate", "3000k",
             "-bufsize", "6000k",
@@ -214,9 +235,8 @@ def manejar_transmision(gestor, youtube, imagen):
             stream_info['rtmp']
         ]
 
-        # Iniciar FFmpeg
         ffmpeg_process = subprocess.Popen(ffmpeg_cmd)
-        logging.info("🟢 Transmisión iniciada - Listo para recibir audio")
+        logging.info("🟢 Transmisión activa - Reproduciendo música...")
 
         # Transmitir música continuamente
         while True:
@@ -231,8 +251,15 @@ def manejar_transmision(gestor, youtube, imagen):
         logging.error(f"Error en transmisión: {str(e)}")
         return False
     finally:
-        ffmpeg_process.terminate()
-        youtube.finalizar_transmision(stream_info['broadcast_id'])
+        if ffmpeg_process:
+            ffmpeg_process.terminate()
+            try:
+                ffmpeg_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                ffmpeg_process.kill()
+        if stream_info:
+            youtube.finalizar_transmision(stream_info['broadcast_id'])
+    return True
 
 def ciclo_transmision():
     gestor = GestorContenido()
@@ -240,11 +267,9 @@ def ciclo_transmision():
     
     while True:
         try:
-            # Seleccionar nueva imagen
             imagen = random.choice([i for i in gestor.medios['imagenes'] if i['local_path']])
-            logging.info(f"🖼️ Imagen seleccionada: {imagen['name']}")
+            logging.info(f"🖼️ Iniciando transmisión con: {imagen['name']}")
             
-            # Manejar transmisión por 8 horas
             start_time = time.time()
             while time.time() - start_time < 28800:  # 8 horas
                 if not manejar_transmision(gestor, youtube, imagen):
