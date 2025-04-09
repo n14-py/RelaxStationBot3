@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 
 # Configuración
-MEDIOS_URL = "https://raw.githubusercontent.com/n14-py/RelaxStationBot/master/medios.json"
+MEDIOS_URL = "https://raw.githubusercontent.com/n14-py/relaxstationmedios/master/mediosmusic.json"
 YOUTUBE_CREDS = {
     'client_id': os.getenv("YOUTUBE_CLIENT_ID"),
     'client_secret': os.getenv("YOUTUBE_CLIENT_SECRET"),
@@ -247,7 +247,7 @@ def generar_titulo(nombre_imagen):
             break
     
     keywords = random.sample(PALABRAS_CLAVE[categoria], 2)
-    return random.choice(PLANTILLAS_TITULOS).format(keywords=' • '.join(keywords).title()
+    return random.choice(PLANTILLAS_TITULOS).format(keywords=' • '.join(keywords).title())
 
 def manejar_transmision(stream_data, youtube):
     try:
@@ -283,7 +283,7 @@ def manejar_transmision(stream_data, youtube):
             "-b:a", "192k",
             "-f", "flv",
             stream_data['rtmp']
-        
+        ]
         proceso = subprocess.Popen(cmd)
         logging.info("🟢 FFmpeg iniciado - Preparando stream...")
         
