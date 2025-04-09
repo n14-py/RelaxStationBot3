@@ -402,7 +402,7 @@ def ciclo_transmision():
             imagen = random.choice(gestor.medios['imagenes'])
             musica = random.choice(gestor.medios['musica'])
             
-            titulo = generar_titulo(imagen, musica)
+            titulo = generar_titulo()
             logging.info(f"📝 Título generado: {titulo}")
             
             stream_info = youtube.crear_transmision(titulo, imagen['local_path'])
