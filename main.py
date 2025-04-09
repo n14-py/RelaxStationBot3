@@ -46,7 +46,6 @@ PALABRAS_CLAVE = {
  }   }
 
 PLANTILLAS_TITULOS = [
-    "🌙 RelaxStation – {musica} para {actividad}",
     "📚 {musica} | Música suave para {imagen}",
     "🌧️ {musica} + {imagen} – Relajate, estudia o soñá",
     "✨ {musica} – Para tu mente, alma y creatividad",
