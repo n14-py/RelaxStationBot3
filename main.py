@@ -32,19 +32,30 @@ YOUTUBE_CREDS = {
 }
 
 PALABRAS_CLAVE = {
-    'relajante': ['relajante', 'calma', 'paz', 'zen'],
-    'naturaleza': ['bosque', 'lluvia', 'rio', 'montaña'],
-    'productividad': ['estudio', 'trabajo', 'concentración', 'focus'],
-    'musical': ['lofi', 'jazz', 'clásica', 'instrumental']
-}
+    'imagen': {
+        'naturaleza': ['bosque', 'lluvia', 'montaña', 'río', 'jungla'],
+        'urbano': ['ciudad', 'loft', 'ático', 'moderno', 'urbano'],
+        'abstracto': ['arte', 'geometría', 'color', 'diseño', 'creativo'],
+        'vintage': ['retro', 'nostalgia', 'analógico', 'vintage']
+    },
+    'musica': {
+        'lofi': ['lofi', 'chill', 'study', 'relax'],
+        'jazz': ['jazz', 'blues', 'saxo', 'instrumental'],
+        'naturaleza': ['lluvia', 'bosque', 'viento', 'oceano'],
+        'clásica': ['piano', 'clásica', 'violín', 'orquesta']
+ }   }
 
 PLANTILLAS_TITULOS = [
-    "✨ {musica} – Para tu {imagen}, alma y creatividad",
-    "🎧 {musica} • Ambiente {imagen} Continuo",
-    "🌌 {imagen} • {musica} para el Alma",
-    "🔥 {musica} • Energía {imagen}",
-    "🧘♂️ {imagen} • {musica} para Meditar",
-    "🚀 {musica} • Motivación {imagen}"
+    "🌙 RelaxStation – {musica} para {actividad}",
+    "📚 {musica} | Música suave para {imagen}",
+    "🌧️ {musica} + {imagen} – Relajate, estudia o soñá",
+    "✨ {musica} – Para tu mente, alma y creatividad",
+    "☕ Noche {imagen} con {musica} | Transmisión 24/7",
+    "📼 Retro {musica} | Desde RelaxStation",
+    "🧘 Música {musica} para {imagen}",
+    "📀 {musica} para enfocar, relajar o disfrutar",
+    "🌌 {musica} para soñar despierto – {imagen}",
+    "🔥 {musica} para noches {imagen}"
 ]
 
 class GestorContenido:
@@ -251,51 +262,73 @@ def manejar_transmision(stream_data, youtube):
             logging.info(f"⏳ Esperando {tiempo_espera:.0f}s para preparar transmisión...")
             time.sleep(tiempo_espera)
         
-        # Iniciar FFmpeg
+        # Configurar FIFO
         fifo_path = os.path.join(stream_data['gestor'].media_cache_dir, "audio_fifo")
-        os.makedirs(os.path.dirname(fifo_path), exist_ok=True)
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
         os.mkfifo(fifo_path)
 
+        # Comando FFmpeg optimizado
         cmd = [
-            "ffmpeg", "-loglevel", "error",
-            "-re", "-loop", "1", "-i", stream_data['imagen']['local_path'],
-            "-f", "mp3", "-i", fifo_path,
+            "ffmpeg",
+            "-loglevel", "error",
+            "-re",
+            "-loop", "1",
+            "-i", stream_data['imagen']['local_path'],
+            "-f", "mp3",
+            "-i", fifo_path,
             "-vf", "format=yuv420p,scale=1280:720",
-            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage",
-            "-b:v", "3000k", "-maxrate", "3000k", "-bufsize", "6000k",
-            "-g", "60", "-c:a", "aac", "-b:a", "192k", "-f", "flv",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-tune", "stillimage",
+            "-b:v", "3000k",
+            "-maxrate", "3000k",
+            "-bufsize", "6000k",
+            "-g", "60",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-f", "flv",
             stream_data['rtmp']
         ]
 
         proceso = subprocess.Popen(cmd)
-        logging.info("🟢 FFmpeg iniciado - Transmisión activa")
+        logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
 
         # Esperar hasta que el stream esté activo
+        stream_activo = False
         for _ in range(10):
-            if youtube.verificar_stream_activo(stream_data['stream_id']):
+            estado = youtube.obtener_estado_stream(stream_data['stream_id'])
+            if estado == 'active':
+                stream_activo = True
                 break
             time.sleep(5)
-        else:
-            raise Exception("El stream no se activó a tiempo")
+        
+        if not stream_activo:
+            raise Exception("❌ Stream no se activó a tiempo")
 
         # Transición a testing
         if youtube.control_estado(stream_data['broadcast_id'], 'testing'):
-            logging.info("🎬 Transmisión en vista previa")
+            logging.info("🎬 Transmisión en VISTA PREVIA")
         
         # Esperar hasta el inicio programado
         tiempo_restante = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds()
         if tiempo_restante > 0:
+            logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
             time.sleep(tiempo_restante)
         
         # Transición a live
         if youtube.control_estado(stream_data['broadcast_id'], 'live'):
             logging.info("🎥 Transmisión LIVE iniciada")
 
-        # Reproducción continua
+        # Mantener transmisión por 8 horas
         tiempo_inicio = datetime.utcnow()
         while (datetime.utcnow() - tiempo_inicio) < timedelta(hours=8):
+            if proceso.poll() is not None:
+                logging.warning("⚡ Reconectando FFmpeg...")
+                proceso.kill()
+                proceso = subprocess.Popen(cmd)
+            
+            # Reproducir música
             musica = random.choice(stream_data['gestor'].medios['musica'])
             logging.info(f"🎵 Reproduciendo: {musica['name']}")
             
@@ -303,7 +336,7 @@ def manejar_transmision(stream_data, youtube):
                 with open(musica['local_path'], 'rb') as audio_file:
                     with open(fifo_path, 'wb') as fifo:
                         fifo.write(audio_file.read())
-                time.sleep(get_duration(musica['local_path']))  # Esperar duración del audio
+                time.sleep(get_duration(musica['local_path']))
             except Exception as e:
                 logging.error(f"Error enviando audio: {str(e)}")
                 time.sleep(5)
@@ -312,9 +345,12 @@ def manejar_transmision(stream_data, youtube):
         logging.error(f"ERROR: {str(e)}")
     finally:
         if proceso:
-            proceso.terminate()
-        youtube.control_estado(stream_data['broadcast_id'], 'complete')
-        logging.info("🛑 Transmisión finalizada")
+            proceso.kill()
+        try:
+            youtube.control_estado(stream_data['broadcast_id'], 'complete')
+            logging.info("🛑 Transmisión finalizada y archivada correctamente")
+        except Exception as e:
+            logging.error(f"Error al finalizar: {str(e)}")
 
 def get_duration(file_path):
     try:
@@ -326,7 +362,7 @@ def get_duration(file_path):
         ], capture_output=True, text=True)
         return float(result.stdout.strip())
     except:
-        return 180  # Duración por defecto 3 minutos
+        return 300  # Duración por defecto 3 minutos
 
 def ciclo_transmision():
     gestor = GestorContenido()
