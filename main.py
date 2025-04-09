@@ -236,21 +236,45 @@ class YouTubeManager:
             logging.error(f"Error cambiando a estado {estado}: {str(e)}")
             return False
 
-def generar_titulo(imagen, musica):
-    def obtener_palabras_clave(texto):
-        texto = texto.lower()
-        return [key for key, palabras in PALABRAS_CLAVE.items() if any(p in texto for p in palabras)]
-    
-    keys_imagen = obtener_palabras_clave(imagen['name'])
-    keys_musica = obtener_palabras_clave(musica['name'])
-    
-    categoria_imagen = keys_imagen[0] if keys_imagen else random.choice(list(PALABRAS_CLAVE.keys()))
-    categoria_musica = keys_musica[0] if keys_musica else random.choice(list(PALABRAS_CLAVE.keys()))
-    
-    return random.choice(PLANTILLAS_TITULOS).format(
-        imagen=categoria_imagen.capitalize(),
-        musica=categoria_musica.capitalize()
-    )
+def generar_titulo():
+    # Listas de componentes para generar títulos
+    EMOJIS = ['📚', '🌙', '🎧', '✨', '☕', '🌿', '🌀', '🕯️', '🌌', '🎹', '🛋️', '📖', '🌧️', '🍵']
+    DESCRIPTORES = [
+        "instrumental", "beats relajantes", "mix premium", "ritmos suaves",
+        "melodías nocturnas", "sonidos cálidos", "vibraciones armoniosas",
+        "compilación especial", "selección exclusiva", "flow continuo"
+    ]
+    ACTIVIDADES = [
+        "estudiá", "relajate", "concentrate", "meditá", "trabajá",
+        "creá", "dormí", "soñá", "desconectá", "fluí"
+    ]
+    MODIFICADORES = [
+        "con estas melodías suaves", "con beats para el alma",
+        "en tu refugio sonoro", "con nuestra mezcla única",
+        "en tu zona de paz", "con energía renovadora"
+    ]
+    HORARIOS = ["24/7", "sin interrupciones", "non-stop", "en loop infinito"]
+
+    # Seleccionar componentes aleatorios
+    componente = {
+        'emoji': random.choice(EMOJIS),
+        'descriptor': random.choice(DESCRIPTORES),
+        'actividad': random.choice(ACTIVIDADES),
+        'modificador': random.choice(MODIFICADORES),
+        'horario': random.choice(HORARIOS)
+    }
+
+    # Plantillas de títulos
+    plantillas = [
+        "{emoji} Lofi {descriptor} {horario} – {actividad.capitalize()} {modificador}",
+        "{emoji} Lofi para {actividad} – {descriptor} {horario}",
+        "{emoji} {descriptor.capitalize()} – {actividad.capitalize()} {modificador}",
+        "{emoji} Lofi {horario} – {descriptor} para {actividad}",
+        "{emoji} {actividad.capitalize()} con Lofi – {descriptor} {modificador}"
+    ]
+
+    # Generar y retornar título
+    return random.choice(plantillas).format(**componente)
 
 def manejar_transmision(stream_data, youtube):
     proceso = None
@@ -296,7 +320,7 @@ def manejar_transmision(stream_data, youtube):
         # Esperar hasta que el stream esté activo
         stream_activo = False
         for _ in range(10):
-            estado = youtube.obtener_estado_stream(stream_data['stream_id'])
+            estado = youtube.verificar_stream_activo(stream_data['stream_id'])
             if estado == 'active':
                 stream_activo = True
                 break
