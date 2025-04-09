@@ -24,7 +24,7 @@ logging.basicConfig(
 )
 
 # Configuración
-MEDIOS_URL = "https://raw.githubusercontent.com/n14-py/relaxmusicmedios/master/mediosmusic.json"
+MEDIOS_URL = "https://raw.githubusercontent.com/n14-py/relaxstationmedios/master/mediosmusic.json"
 YOUTUBE_CREDS = {
     'client_id': os.getenv("YOUTUBE_CLIENT_ID"),
     'client_secret': os.getenv("YOUTUBE_CLIENT_SECRET"),
