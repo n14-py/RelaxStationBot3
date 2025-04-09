@@ -31,21 +31,6 @@ YOUTUBE_CREDS = {
     'refresh_token': os.getenv("YOUTUBE_REFRESH_TOKEN")
 }
 
-PALABRAS_CLAVE = {
-    'imagen': {
-        'naturaleza': ['bosque', 'lluvia', 'montaña', 'río', 'jungla'],
-        'urbano': ['ciudad', 'loft', 'ático', 'moderno', 'urbano'],
-        'abstracto': ['arte', 'geometría', 'color', 'diseño', 'creativo'],
-        'vintage': ['retro', 'nostalgia', 'analógico', 'vintage']
-    },
-    'musica': {
-        'lofi': ['lofi', 'chill', 'study', 'relax'],
-        'jazz': ['jazz', 'blues', 'saxo', 'instrumental'],
-        'naturaleza': ['lluvia', 'bosque', 'viento', 'oceano'],
-        'clásica': ['piano', 'clásica', 'violín', 'orquesta']
-    }
-}
-
 class GestorContenido:
     def __init__(self):
         self.media_cache_dir = os.path.abspath("./media_cache")
@@ -55,7 +40,7 @@ class GestorContenido:
     def descargar_archivo(self, url, es_imagen=False):
         try:
             if "drive.google.com" in url:
-                file_id = parse_qs(urlparse(url).query.get('id', [None])[0])
+                file_id = parse_qs(urlparse(url).query).get('id', [None])[0]
                 if file_id:
                     url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
             
