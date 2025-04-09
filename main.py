@@ -31,32 +31,6 @@ YOUTUBE_CREDS = {
     'refresh_token': os.getenv("YOUTUBE_REFRESH_TOKEN")
 }
 
-PALABRAS_CLAVE = {
-    'imagen': {
-        'naturaleza': ['bosque', 'lluvia', 'montaña', 'río', 'jungla'],
-        'urbano': ['ciudad', 'loft', 'ático', 'moderno', 'urbano'],
-        'abstracto': ['arte', 'geometría', 'color', 'diseño', 'creativo'],
-        'vintage': ['retro', 'nostalgia', 'analógico', 'vintage']
-    },
-    'musica': {
-        'lofi': ['lofi', 'chill', 'study', 'relax'],
-        'jazz': ['jazz', 'blues', 'saxo', 'instrumental'],
-        'naturaleza': ['lluvia', 'bosque', 'viento', 'oceano'],
-        'clásica': ['piano', 'clásica', 'violín', 'orquesta']
- }   }
-
-PLANTILLAS_TITULOS = [
-    "📚 {musica} | Música suave para {imagen}",
-    "🌧️ {musica} + {imagen} – Relajate, estudia o soñá",
-    "✨ {musica} – Para tu mente, alma y creatividad",
-    "☕ Noche {imagen} con {musica} | Transmisión 24/7",
-    "📼 Retro {musica} | Desde RelaxStation",
-    "🧘 Música {musica} para {imagen}",
-    "📀 {musica} para enfocar, relajar o disfrutar",
-    "🌌 {musica} para soñar despierto – {imagen}",
-    "🔥 {musica} para noches {imagen}"
-]
-
 class GestorContenido:
     def __init__(self):
         self.media_cache_dir = os.path.abspath("./media_cache")
@@ -224,6 +198,19 @@ class YouTubeManager:
         except:
             return False
     
+    def obtener_estado_broadcast(self, broadcast_id):
+        try:
+            response = self.youtube.liveBroadcasts().list(
+                part='status',
+                id=broadcast_id
+            ).execute()
+            if response.get('items'):
+                return response['items'][0]['status']['lifeCycleStatus']
+            return None
+        except Exception as e:
+            logging.error(f"Error obteniendo estado del broadcast: {str(e)}")
+            return None
+    
     def control_estado(self, broadcast_id, estado):
         try:
             self.youtube.liveBroadcasts().transition(
@@ -255,43 +242,44 @@ def generar_titulo():
     ]
     HORARIOS = ["24/7", "sin interrupciones", "non-stop", "en loop infinito"]
 
-    # Seleccionar componentes aleatorios
+    # Seleccionar y procesar componentes
+    actividad = random.choice(ACTIVIDADES)
+    descriptor = random.choice(DESCRIPTORES)
+
     componente = {
         'emoji': random.choice(EMOJIS),
-        'descriptor': random.choice(DESCRIPTORES),
-        'actividad': random.choice(ACTIVIDADES),
+        'descriptor': descriptor,
+        'descriptor_cap': descriptor.capitalize(),
+        'actividad': actividad,
+        'actividad_cap': actividad.capitalize(),
         'modificador': random.choice(MODIFICADORES),
         'horario': random.choice(HORARIOS)
     }
 
-    # Plantillas de títulos
+    # Plantillas de títulos corregidas
     plantillas = [
-        "{emoji} Lofi {descriptor} {horario} – {actividad.capitalize()} {modificador}",
+        "{emoji} Lofi {descriptor} {horario} – {actividad_cap} {modificador}",
         "{emoji} Lofi para {actividad} – {descriptor} {horario}",
-        "{emoji} {descriptor.capitalize()} – {actividad.capitalize()} {modificador}",
+        "{emoji} {descriptor_cap} – {actividad_cap} {modificador}",
         "{emoji} Lofi {horario} – {descriptor} para {actividad}",
-        "{emoji} {actividad.capitalize()} con Lofi – {descriptor} {modificador}"
+        "{emoji} {actividad_cap} con Lofi – {descriptor} {modificador}"
     ]
 
-    # Generar y retornar título
     return random.choice(plantillas).format(**componente)
 
 def manejar_transmision(stream_data, youtube):
     proceso = None
     try:
-        # Esperar inicio programado
         tiempo_espera = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds()
         if tiempo_espera > 0:
             logging.info(f"⏳ Esperando {tiempo_espera:.0f}s para preparar transmisión...")
             time.sleep(tiempo_espera)
         
-        # Configurar FIFO
         fifo_path = os.path.join(stream_data['gestor'].media_cache_dir, "audio_fifo")
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
         os.mkfifo(fifo_path)
 
-        # Comando FFmpeg optimizado
         cmd = [
             "ffmpeg",
             "-loglevel", "error",
@@ -317,11 +305,9 @@ def manejar_transmision(stream_data, youtube):
         proceso = subprocess.Popen(cmd)
         logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
 
-        # Esperar hasta que el stream esté activo
         stream_activo = False
         for _ in range(10):
-            estado = youtube.verificar_stream_activo(stream_data['stream_id'])
-            if estado == 'active':
+            if youtube.verificar_stream_activo(stream_data['stream_id']):
                 stream_activo = True
                 break
             time.sleep(5)
@@ -329,21 +315,17 @@ def manejar_transmision(stream_data, youtube):
         if not stream_activo:
             raise Exception("❌ Stream no se activó a tiempo")
 
-        # Transición a testing
         if youtube.control_estado(stream_data['broadcast_id'], 'testing'):
             logging.info("🎬 Transmisión en VISTA PREVIA")
         
-        # Esperar hasta el inicio programado
         tiempo_restante = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds()
         if tiempo_restante > 0:
             logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
             time.sleep(tiempo_restante)
         
-        # Transición a live
         if youtube.control_estado(stream_data['broadcast_id'], 'live'):
             logging.info("🎥 Transmisión LIVE iniciada")
 
-        # Mantener transmisión por 8 horas
         tiempo_inicio = datetime.utcnow()
         while (datetime.utcnow() - tiempo_inicio) < timedelta(hours=8):
             if proceso.poll() is not None:
@@ -351,7 +333,6 @@ def manejar_transmision(stream_data, youtube):
                 proceso.kill()
                 proceso = subprocess.Popen(cmd)
             
-            # Reproducir música
             musica = random.choice(stream_data['gestor'].medios['musica'])
             logging.info(f"🎵 Reproduciendo: {musica['name']}")
             
@@ -370,8 +351,12 @@ def manejar_transmision(stream_data, youtube):
         if proceso:
             proceso.kill()
         try:
-            youtube.control_estado(stream_data['broadcast_id'], 'complete')
-            logging.info("🛑 Transmisión finalizada y archivada correctamente")
+            estado_actual = youtube.obtener_estado_broadcast(stream_data['broadcast_id'])
+            if estado_actual == 'live':
+                youtube.control_estado(stream_data['broadcast_id'], 'complete')
+                logging.info("🛑 Transmisión finalizada y archivada")
+            else:
+                logging.warning(f"⚠️ Estado actual {estado_actual}, no se puede finalizar")
         except Exception as e:
             logging.error(f"Error al finalizar: {str(e)}")
 
@@ -385,7 +370,7 @@ def get_duration(file_path):
         ], capture_output=True, text=True)
         return float(result.stdout.strip())
     except:
-        return 300  # Duración por defecto 3 minutos
+        return 300
 
 def ciclo_transmision():
     gestor = GestorContenido()
@@ -400,8 +385,6 @@ def ciclo_transmision():
                 continue
             
             imagen = random.choice(gestor.medios['imagenes'])
-            musica = random.choice(gestor.medios['musica'])
-            
             titulo = generar_titulo()
             logging.info(f"📝 Título generado: {titulo}")
             
@@ -415,15 +398,13 @@ def ciclo_transmision():
                 "gestor": gestor
             }
 
-            hilo = threading.Thread(
+            threading.Thread(
                 target=manejar_transmision,
                 args=(stream_data, youtube),
                 daemon=True
-            )
-            hilo.start()
+            ).start()
             
-            # Esperar 8 horas y 5 minutos para nueva transmisión
-            time.sleep(28800 + 300)
+            time.sleep(28800 + 300)  # 8 horas + 5 minutos
 
         except Exception as e:
             logging.error(f"ERROR GRAVE: {str(e)}")
