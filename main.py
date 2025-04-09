@@ -126,7 +126,7 @@ class GestorContenido:
             
             # Filtrar elementos inválidos
             datos['imagenes'] = [i for i in datos['imagenes'] if i['local_path']]
-            datos['musica'] = [m for m in datos['musica'] if m['local_path']
+            datos['musica'] = [m for m in datos['musica'] if m['local_path']]
             
             if not datos['imagenes'] or not datos['musica']:
                 raise ValueError("No hay contenido válido para transmitir")
