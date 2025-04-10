@@ -152,6 +152,7 @@ class YouTubeManager:
                         "selfDeclaredMadeForKids": False,
                         "enableAutoStart": True,
                         "enableAutoStop": True
+                        "lifeCycleStatus": "created"
                     }
                 }
             ).execute()
