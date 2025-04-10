@@ -44,7 +44,7 @@ class GestorContenido:
             if os.path.exists(ruta_local):
                 return ruta_local
 
-            logging.info(f"[DESCARGA] Imagen: {url}")
+            logging.info(f"⬇️ Descargando imagen: {url}")
             temp_path = os.path.join(self.media_cache_dir, f"temp_{nombre_hash}")
             
             with requests.get(url, stream=True, timeout=30) as r:
@@ -74,7 +74,7 @@ class GestorContenido:
             if os.path.exists(ruta_local):
                 return ruta_local
 
-            logging.info(f"[DESCARGA] Música: {url}")
+            logging.info(f"⬇️ Descargando música: {url}")
             with requests.get(url, stream=True, timeout=30) as r:
                 r.raise_for_status()
                 with open(ruta_local, 'wb') as f:
@@ -89,7 +89,35 @@ class GestorContenido:
         try:
             respuesta = requests.get(MEDIOS_URL, timeout=20)
             respuesta.raise_for_status()
-            return respuesta.json()
+            datos = respuesta.json()
+            
+            # Procesar imágenes
+            medios_validos = {"imagenes": [], "musica": []}
+            
+            for img in datos.get('imagenes', []):
+                path = self.procesar_imagen(img.get('url', ''))
+                if path:
+                    medios_validos['imagenes'].append({
+                        'name': img.get('name', 'Sin nombre'),
+                        'local_path': path
+                    })
+            
+            # Procesar música
+            for musica in datos.get('musica', []):
+                path = self.descargar_musica(musica.get('url', ''))
+                if path:
+                    medios_validos['musica'].append({
+                        'name': musica.get('name', 'Sin nombre'),
+                        'local_path': path
+                    })
+            
+            if not medios_validos['imagenes']:
+                logging.error("No hay imágenes válidas disponibles")
+            
+            if not medios_validos['musica']:
+                logging.error("No hay música válida disponible")
+            
+            return medios_validos
         except Exception as e:
             logging.error(f"Error cargando medios: {str(e)}")
             return {"imagenes": [], "musica": []}
@@ -109,13 +137,16 @@ class YouTubeManager:
                 scopes=['https://www.googleapis.com/auth/youtube']
             )
             creds.refresh(Request())
-            logging.info("[AUTENTICACIÓN] Conexión con YouTube exitosa")
+            logging.info("✅ Autenticación con YouTube exitosa")
             return build('youtube', 'v3', credentials=creds)
         except Exception as e:
-            logging.error(f"[ERROR] Autenticación fallida: {str(e)}")
+            logging.error(f"❌ Error de autenticación: {str(e)}")
             return None
     
     def crear_transmision(self, titulo, imagen_path):
+        if not self.youtube:
+            return None
+            
         try:
             scheduled_start = datetime.utcnow() + timedelta(minutes=3)
             
@@ -131,7 +162,8 @@ class YouTubeManager:
                         "privacyStatus": "public",
                         "selfDeclaredMadeForKids": False,
                         "enableAutoStart": True,
-                        "enableAutoStop": True
+                        "enableAutoStop": True,
+                        "lifeCycleStatus": "created"
                     }
                 }
             ).execute()
@@ -160,7 +192,7 @@ class YouTubeManager:
                 media_body=imagen_path
             ).execute()
 
-            logging.info(f"[PROGRAMACIÓN] Transmisión para: {scheduled_start}")
+            logging.info(f"📡 Transmisión programada: {scheduled_start}")
             return {
                 "rtmp": f"{stream['cdn']['ingestionInfo']['ingestionAddress']}/{stream['cdn']['ingestionInfo']['streamName']}",
                 "broadcast_id": broadcast['id'],
@@ -168,7 +200,7 @@ class YouTubeManager:
                 "start_time": scheduled_start
             }
         except Exception as e:
-            logging.error(f"[ERROR] Creando transmisión: {str(e)}")
+            logging.error(f"Error creando transmisión: {str(e)}")
             return None
     
     def verificar_stream(self, stream_id):
@@ -177,9 +209,9 @@ class YouTubeManager:
                 part="status",
                 id=stream_id
             ).execute()
-            return response['items'][0]['status']['streamStatus']
+            return response.get('items', [{}])[0].get('status', {}).get('streamStatus')
         except Exception as e:
-            logging.error(f"[ERROR] Verificando stream: {str(e)}")
+            logging.error(f"Error verificando stream: {str(e)}")
             return None
     
     def cambiar_estado(self, broadcast_id, estado):
@@ -191,7 +223,7 @@ class YouTubeManager:
             ).execute()
             return True
         except Exception as e:
-            logging.error(f"[ERROR] Cambiando a {estado}: {str(e)}")
+            logging.error(f"Error cambiando a {estado}: {str(e)}")
             return False
 
 def generar_titulo(imagen):
@@ -200,12 +232,13 @@ def generar_titulo(imagen):
 
 def manejar_transmision(gestor, youtube, stream_info, imagen):
     fifo_path = os.path.join(gestor.media_cache_dir, "audio_fifo")
+    proceso = None
     
     try:
-        # Iniciar FFmpeg 1 minuto antes
+        # Esperar para iniciar FFmpeg
         tiempo_espera = (stream_info['start_time'] - timedelta(minutes=1) - datetime.utcnow()).total_seconds()
         if tiempo_espera > 0:
-            logging.info(f"[ESPERA] Iniciando FFmpeg en {tiempo_espera:.0f}s")
+            logging.info(f"⏳ Iniciando FFmpeg en {tiempo_espera:.0f} segundos...")
             time.sleep(tiempo_espera)
         
         # Configurar FIFO
@@ -213,7 +246,7 @@ def manejar_transmision(gestor, youtube, stream_info, imagen):
             os.remove(fifo_path)
         os.mkfifo(fifo_path)
 
-        # Comando FFmpeg optimizado
+        # Comando FFmpeg
         ffmpeg_cmd = [
             "ffmpeg",
             "-loglevel", "error",
@@ -237,58 +270,59 @@ def manejar_transmision(gestor, youtube, stream_info, imagen):
         ]
 
         proceso = subprocess.Popen(ffmpeg_cmd)
-        logging.info("[FFMPEG] Transmisión RTMP iniciada")
+        logging.info("🟢 FFmpeg iniciado - Transmitiendo...")
 
-        # Esperar conexión activa
+        # Verificar estado del stream
         for _ in range(10):
             estado = youtube.verificar_stream(stream_info['stream_id'])
             if estado == 'active':
-                logging.info("[ESTADO] Stream activo detectado")
+                logging.info("✅ Stream activo detectado")
                 break
             time.sleep(5)
         else:
-            logging.error("[ERROR] Stream no se activó")
-            proceso.kill()
+            logging.error("❌ Stream no se activó")
             return False
 
-        # Cambiar a vista previa
+        # Cambiar a testing
         if youtube.cambiar_estado(stream_info['broadcast_id'], 'testing'):
-            logging.info("[ESTADO] Modo Vista Previa activado")
-        
+            logging.info("🎬 Modo vista previa activado")
+
         # Esperar inicio programado
         tiempo_restante = (stream_info['start_time'] - datetime.utcnow()).total_seconds()
         if tiempo_restante > 0:
-            logging.info(f"[ESPERA] Inicio en directo en {tiempo_restante:.0f}s")
+            logging.info(f"⏳ Inicio en directo en {tiempo_restante:.0f} segundos...")
             time.sleep(tiempo_restante)
         
-        # Cambiar a en vivo
+        # Cambiar a live
         if youtube.cambiar_estado(stream_info['broadcast_id'], 'live'):
-            logging.info("[ESTADO] Transmisión LIVE iniciada")
+            logging.info("🎥 Transmisión LIVE iniciada")
 
         # Reproducir música por 8 horas
         inicio = time.time()
-        while (time.time() - inicio) < 28800:  # 8 horas
+        while (time.time() - inicio) < 28800:
+            if not gestor.medios['musica']:
+                logging.error("No hay música disponible")
+                break
+                
             musica = random.choice(gestor.medios['musica'])
-            if not musica.get('local_path'):
-                continue
+            logging.info(f"🎵 Reproduciendo: {musica['name']}")
             
-            logging.info(f"[MÚSICA] Reproduciendo: {musica['name']}")
             try:
                 with open(musica['local_path'], 'rb') as f:
-                    contenido = f.read()
-                with open(fifo_path, 'wb') as fifo:
-                    fifo.write(contenido)
+                    with open(fifo_path, 'wb') as fifo:
+                        fifo.write(f.read())
             except Exception as e:
-                logging.error(f"[ERROR] Reproducción: {str(e)}")
+                logging.error(f"Error reproduciendo música: {str(e)}")
 
-        logging.info("[FINAL] Transmisión completada (8 horas)")
+        logging.info("🕒 Transmisión completada (8 horas)")
         return True
 
     except Exception as e:
-        logging.error(f"[ERROR CRÍTICO] {str(e)}")
+        logging.error(f"Error crítico: {str(e)}")
         return False
     finally:
-        proceso.kill() if proceso else None
+        if proceso:
+            proceso.terminate()
         if youtube.youtube:
             youtube.cambiar_estado(stream_info['broadcast_id'], 'complete')
 
@@ -301,27 +335,30 @@ def ciclo_principal():
 
     while True:
         try:
-            # Seleccionar contenido
-            imagen = random.choice([i for i in gestor.medios['imagenes'] if i.get('local_path')])
-            logging.info(f"[CONTENIDO] Imagen seleccionada: {imagen['name']}")
+            if not gestor.medios['imagenes']:
+                logging.error("No hay imágenes disponibles")
+                time.sleep(60)
+                continue
+                
+            imagen = random.choice(gestor.medios['imagenes'])
+            logging.info(f"🖼️ Imagen seleccionada: {imagen['name']}")
             
-            # Crear transmisión
             stream_info = youtube.crear_transmision(
                 generar_titulo(imagen),
                 imagen['local_path']
             )
-            if not stream_info:
-                raise Exception("Error creación transmisión")
             
-            # Manejar transmisión
+            if not stream_info:
+                raise Exception("Error creando transmisión")
+
             if manejar_transmision(gestor, youtube, stream_info, imagen):
-                logging.info("[CICLO] Preparando nueva transmisión en 5 minutos...")
-                time.sleep(300)  # Esperar 5 minutos
+                logging.info("⏳ Preparando nueva transmisión en 5 minutos...")
+                time.sleep(300)
             else:
                 time.sleep(60)
 
         except Exception as e:
-            logging.error(f"[FALLO] {str(e)}")
+            logging.error(f"Error en ciclo principal: {str(e)}")
             time.sleep(60)
 
 @app.route('/health')
@@ -329,6 +366,6 @@ def health_check():
     return "OK", 200
 
 if __name__ == "__main__":
-    logging.info("[INICIO] Iniciando sistema de transmisión automática...")
+    logging.info("🎧 Iniciando sistema de transmisión automática...")
     threading.Thread(target=ciclo_principal, daemon=True).start()
     serve(app, host='0.0.0.0', port=10000)
