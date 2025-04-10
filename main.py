@@ -344,7 +344,7 @@ def manejar_transmision(stream_data, youtube):
         proceso = subprocess.Popen(cmd)
         logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
         
-        max_checks = 10
+        max_checks = 20
         stream_activo = False
         for _ in range(max_checks):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
