@@ -344,42 +344,58 @@ def manejar_transmision(stream_data, youtube):
         proceso = subprocess.Popen(cmd)
         logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
         
-        max_checks = 20
+        # Aumentar intentos y tiempo de espera
+        max_checks = 20  # Aumentado de 10 a 20
         stream_activo = False
-        for _ in range(max_checks):
+        for i in range(max_checks):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
+            logging.info(f"🔍 Verificando estado del stream ({i+1}/{max_checks}): {estado}")
+            
             if estado == 'active':
                 logging.info("✅ Stream activo - Transicionando a testing")
                 if youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
                     logging.info("🎬 Transmisión en VISTA PREVIA")
                     stream_activo = True
                 break
-            time.sleep(5)
+                
+            # Espera progresiva: 5s primeros 10 intentos, luego 10s
+            time.sleep(5 if i < 10 else 10)
         
         if not stream_activo:
-            logging.error("❌ Stream no se activó a tiempo")
+            logging.error("❌ Stream no se activó después de %d intentos", max_checks)
             proceso.kill()
+            youtube.finalizar_transmision(stream_data['broadcast_id'])
             return
         
+        # Esperar hasta el tiempo programado con margen adicional
         tiempo_restante = (stream_data['start_time'] - datetime.utcnow()).total_seconds()
         if tiempo_restante > 0:
-            logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
-            time.sleep(tiempo_restante)
-        
-        if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
-            logging.info("🎥 Transmisión LIVE iniciada")
+            logging.info(f"⏳ Esperando {tiempo_restante:.0f}s + 30s margen para LIVE...")
+            time.sleep(tiempo_restante + 30)  # Margen adicional de 30 segundos
         else:
-            raise Exception("No se pudo iniciar la transmisión")
+            logging.warning("⚠️ Tiempo programado ya pasó, iniciando inmediatamente")
         
+        # Intentar transición a LIVE 3 veces
+        for i in range(3):
+            if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
+                logging.info("🎥 Transmisión LIVE iniciada")
+                break
+            logging.warning(f"⚠️ Fallo transición a LIVE (intento {i+1}/3)")
+            time.sleep(10)
+        else:
+            raise Exception("No se pudo iniciar la transmisión LIVE")
+        
+        # Bucle principal de transmisión
         tiempo_inicio = datetime.utcnow()
         while (datetime.utcnow() - tiempo_inicio) < timedelta(hours=8):
             try:
                 with open(stream_data['musica']['local_path'], 'rb') as f:
                     with open(fifo_path, 'wb') as fifo:
                         fifo.write(f.read())
+                time.sleep(0.1)  # Pequeña pausa para evitar sobrecarga
             except Exception as e:
                 logging.error(f"Error reproduciendo música: {str(e)}")
-            time.sleep(1)
+                time.sleep(1)
         
         proceso.kill()
         youtube.finalizar_transmision(stream_data['broadcast_id'])
@@ -387,6 +403,7 @@ def manejar_transmision(stream_data, youtube):
 
     except Exception as e:
         logging.error(f"Error en hilo de transmisión: {str(e)}")
+        if 'proceso' in locals(): proceso.kill()
         youtube.finalizar_transmision(stream_data['broadcast_id'])
 
 def ciclo_transmision():
