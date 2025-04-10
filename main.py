@@ -124,6 +124,18 @@ class YouTubeManager:
         creds.refresh(Request())
         return creds
     
+    def transition_broadcast(self, broadcast_id, status):
+        try:
+            self.youtube.liveBroadcasts().transition(
+                broadcastStatus=status,
+                id=broadcast_id,
+                part="id,status"
+            ).execute()
+            return True
+        except Exception as e:
+            logging.error(f"Error transitioning broadcast to {status}: {str(e)}")
+            return False
+    
     def crear_transmision(self, titulo, imagen_path):
         try:
             # Crear broadcast
@@ -133,7 +145,7 @@ class YouTubeManager:
                     "snippet": {
                         "title": titulo,
                         "description": "🎵 Música continua 24/7 • Mezcla profesional\n🔔 Activa las notificaciones\n👍 Déjanos tu like",
-                        "scheduledStartTime": (datetime.utcnow() + timedelta(seconds=30)).isoformat() + "Z"
+                        "scheduledStartTime": datetime.utcnow().isoformat() + "Z"
                     },
                     "status": {
                         "privacyStatus": "public",
@@ -174,6 +186,20 @@ class YouTubeManager:
                 media_mime_type='image/jpeg'
             ).execute()
 
+            # Transición a vista previa
+            logging.info("⚠️ Cambiando a modo vista previa...")
+            if not self.transition_broadcast(broadcast['id'], "testing"):
+                return None
+
+            logging.info("✅ Transmisión en vista previa")
+            logging.info("🕒 Esperando 30 segundos para iniciar transmisión...")
+            time.sleep(30)
+
+            # Iniciar transmisión
+            if not self.transition_broadcast(broadcast['id'], "live"):
+                return None
+            logging.info("🎥 Transmisión iniciada")
+
             return {
                 "rtmp": f"{stream['cdn']['ingestionInfo']['ingestionAddress']}/{stream['cdn']['ingestionInfo']['streamName']}",
                 "broadcast_id": broadcast['id'],
@@ -185,11 +211,7 @@ class YouTubeManager:
 
     def finalizar_transmision(self, broadcast_id):
         try:
-            self.youtube.liveBroadcasts().transition(
-                broadcastStatus="complete",
-                id=broadcast_id,
-                part="id,status"
-            ).execute()
+            self.transition_broadcast(broadcast_id, "complete")
             return True
         except Exception as e:
             logging.error(f"Error finalizando transmisión: {str(e)}")
@@ -200,6 +222,7 @@ def generar_titulo(imagen):
 
 def manejar_transmision(gestor, youtube, imagen):
     ffmpeg_process = None
+    stream_info = None
     try:
         # Crear transmisión
         stream_info = youtube.crear_transmision(generar_titulo(imagen), imagen['local_path'])
@@ -238,14 +261,23 @@ def manejar_transmision(gestor, youtube, imagen):
         ffmpeg_process = subprocess.Popen(ffmpeg_cmd)
         logging.info("🟢 Transmisión activa - Reproduciendo música...")
 
-        # Transmitir música continuamente
-        while True:
+        # Duración de la transmisión (8 horas)
+        start_time = time.time()
+        end_time = start_time + 28800  # 8 horas en segundos
+
+        # Transmitir música hasta completar el tiempo
+        while time.time() < end_time:
             musica = random.choice([m for m in gestor.medios['musica'] if m['local_path']])
             logging.info(f"🎵 Reproduciendo: {musica['name']}")
             
-            with open(musica['local_path'], 'rb') as audio_file:
-                with open(fifo_path, 'wb') as fifo:
-                    fifo.write(audio_file.read())
+            try:
+                with open(musica['local_path'], 'rb') as audio_file:
+                    with open(fifo_path, 'wb') as fifo:
+                        fifo.write(audio_file.read())
+            except Exception as e:
+                logging.error(f"Error reproduciendo música: {str(e)}")
+
+        logging.info("🕒 Tiempo de transmisión completado (8 horas)")
 
     except Exception as e:
         logging.error(f"Error en transmisión: {str(e)}")
@@ -268,14 +300,14 @@ def ciclo_transmision():
     while True:
         try:
             imagen = random.choice([i for i in gestor.medios['imagenes'] if i['local_path']])
-            logging.info(f"🖼️ Iniciando transmisión con: {imagen['name']}")
+            logging.info(f"🖼️ Configurando nueva transmisión con: {imagen['name']}")
             
-            start_time = time.time()
-            while time.time() - start_time < 28800:  # 8 horas
-                if not manejar_transmision(gestor, youtube, imagen):
-                    time.sleep(30)
-                    break
-            
+            if manejar_transmision(gestor, youtube, imagen):
+                logging.info("⏳ Preparando próxima transmisión en 5 minutos...")
+                time.sleep(300)  # Espera 5 minutos antes de nueva transmisión
+            else:
+                time.sleep(60)
+
         except Exception as e:
             logging.error(f"Error crítico: {str(e)}")
             time.sleep(60)
