@@ -19,7 +19,10 @@ app = Flask(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('streamer.log')
+    ]
 )
 
 # Configuración
@@ -44,7 +47,7 @@ class GestorContenido:
             if os.path.exists(ruta_local):
                 return ruta_local
 
-            logging.info(f"⬇️ Procesando imagen: {url}")
+            logging.info(f"⬇️ Descargando imagen: {url}")
             temp_path = os.path.join(self.media_cache_dir, f"temp_{nombre_hash}")
             
             with requests.get(url, stream=True, timeout=30) as r:
@@ -109,20 +112,27 @@ class YouTubeManager:
     def autenticar(self):
         try:
             creds = Credentials(
-                token="",
+                token=None,
                 refresh_token=YOUTUBE_CREDS['refresh_token'],
                 client_id=YOUTUBE_CREDS['client_id'],
                 client_secret=YOUTUBE_CREDS['client_secret'],
                 token_uri="https://oauth2.googleapis.com/token",
                 scopes=['https://www.googleapis.com/auth/youtube']
             )
+            
             creds.refresh(Request())
+            logging.info("🔑 Autenticación con YouTube exitosa")
             return build('youtube', 'v3', credentials=creds)
+        
         except Exception as e:
-            logging.error(f"Error autenticación YouTube: {str(e)}")
+            logging.error(f"🚨 Error de autenticación: {str(e)}")
+            logging.error("⚠️ Solución: Genera un nuevo refresh token con el script de autenticación")
             return None
     
     def crear_transmision(self, titulo, imagen_path):
+        if not self.youtube:
+            return None
+            
         try:
             scheduled_start = datetime.utcnow() + timedelta(minutes=5)
             
@@ -171,6 +181,7 @@ class YouTubeManager:
                 media_body=imagen_path
             ).execute()
 
+            logging.info(f"📡 Transmisión programada: {scheduled_start}")
             return {
                 "rtmp": f"{stream['cdn']['ingestionInfo']['ingestionAddress']}/{stream['cdn']['ingestionInfo']['streamName']}",
                 "scheduled_start": scheduled_start,
@@ -214,15 +225,17 @@ def generar_titulo(imagen):
     return f"{random.choice(temas[categoria])} Vibes • {imagen['name']} • 24/7"
 
 def manejar_transmision(stream_data, gestor, youtube):
+    if not youtube.youtube:
+        return False
+        
     ffmpeg_process = None
     try:
-        # Calcular tiempo de inicio
+        # Configurar tiempo de inicio
         tiempo_inicio_ffmpeg = stream_data['scheduled_start'] - timedelta(minutes=1)
-        espera_ffmpeg = (tiempo_inicio_ffmpeg - datetime.utcnow()).total_seconds()
+        espera_ffmpeg = max(0, (tiempo_inicio_ffmpeg - datetime.utcnow()).total_seconds())
         
-        if espera_ffmpeg > 0:
-            logging.info(f"⏳ Esperando {espera_ffmpeg:.0f} segundos para iniciar FFmpeg...")
-            time.sleep(espera_ffmpeg)
+        logging.info(f"⏳ Esperando {espera_ffmpeg:.0f}s para iniciar FFmpeg...")
+        time.sleep(espera_ffmpeg)
 
         # Configurar FIFO
         fifo_path = os.path.join(gestor.media_cache_dir, "audio_fifo")
@@ -257,35 +270,32 @@ def manejar_transmision(stream_data, gestor, youtube):
         logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
 
         # Verificar estado del stream
-        max_checks = 10
-        stream_activo = False
-        for _ in range(max_checks):
+        for _ in range(10):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
             if estado == 'active':
-                logging.info("✅ Stream activo - Transicionando a testing")
-                if youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
-                    logging.info("🎬 Transmisión en VISTA PREVIA")
-                    stream_activo = True
+                logging.info("✅ Stream activo")
                 break
             time.sleep(5)
-        
-        if not stream_activo:
-            logging.error("❌ Stream no se activó a tiempo")
-            ffmpeg_process.kill()
+        else:
+            logging.error("❌ Stream no se activó")
             return False
 
-        # Esperar hasta el tiempo programado
-        tiempo_restante = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds()
-        if tiempo_restante > 0:
-            logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
-            time.sleep(tiempo_restante)
+        # Transición a testing
+        if not youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
+            return False
+        logging.info("🎬 Modo vista previa activado")
 
-        # Iniciar transmisión LIVE
+        # Esperar inicio programado
+        tiempo_restante = max(0, (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds())
+        logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
+        time.sleep(tiempo_restante)
+
+        # Transición a live
         if not youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
-            raise Exception("No se pudo iniciar la transmisión LIVE")
+            return False
         logging.info("🎥 Transmisión LIVE iniciada")
 
-        # Reproducir música durante 8 horas
+        # Reproducción continua
         start_time = datetime.utcnow()
         while (datetime.utcnow() - start_time) < timedelta(hours=8):
             musica = random.choice([m for m in gestor.medios['musica'] if m['local_path']])
@@ -298,7 +308,7 @@ def manejar_transmision(stream_data, gestor, youtube):
             except Exception as e:
                 logging.error(f"Error reproduciendo música: {str(e)}")
 
-        logging.info("🕒 Tiempo de transmisión completado (8 horas)")
+        logging.info("🕒 Transmisión completada (8 horas)")
         return True
 
     except Exception as e:
@@ -307,15 +317,17 @@ def manejar_transmision(stream_data, gestor, youtube):
     finally:
         if ffmpeg_process:
             ffmpeg_process.terminate()
-            try:
-                ffmpeg_process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                ffmpeg_process.kill()
-        youtube.transicionar_estado(stream_data['broadcast_id'], 'complete')
+        if youtube.youtube:
+            youtube.transicionar_estado(stream_data['broadcast_id'], 'complete')
 
 def ciclo_transmision():
     gestor = GestorContenido()
     youtube = YouTubeManager()
+    
+    if not youtube.youtube:
+        logging.error("🚨 No se puede continuar sin autenticación válida")
+        return
+
     current_stream = None
     
     while True:
