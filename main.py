@@ -113,7 +113,8 @@ class GestorContenido:
                             'local_path': path
                         })
             
-            logging.info(f"Medios cargados: {len(medios_validos['imagenes']} imágenes, {len(medios_validos['musica']} canciones")
+            logging.info(f"Medios cargados: {len(medios_validos['imagenes'])} imágenes, {len(medios_validos['musica'])} canciones")
+
             return medios_validos
         except Exception as e:
             logging.error(f"Error cargando medios: {str(e)}")
