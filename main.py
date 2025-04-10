@@ -147,6 +147,21 @@ class YouTubeManager:
         except Exception as e:
             logging.error(f"🚨 Error de autenticación: {str(e)}")
             return None
+
+    def verificar_estado_stream(self, stream_id):
+        try:
+            response = self.youtube.liveStreams().list(
+                part="status",
+                id=stream_id
+            ).execute()
+            
+            if not response.get('items'):
+                return None
+                
+            return response['items'][0]['status']['streamStatus']
+        except Exception as e:
+            logging.error(f"Error verificando estado del stream: {str(e)}")
+            return None
     
     def crear_transmision(self, titulo, imagen_path):
         if not self.youtube:
@@ -260,15 +275,14 @@ def manejar_transmision(stream_data, youtube):
     fifo_path = "/tmp/audio_fifo"
     
     try:
-        # Configurar FIFO
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
         os.mkfifo(fifo_path)
 
-        # Comando FFmpeg con parámetros mejorados
+        # Comando FFmpeg mejorado
         cmd = [
             "ffmpeg",
-            "-loglevel", "verbose",  # Más detalle de logs
+            "-loglevel", "verbose",
             "-re",
             "-loop", "1",
             "-i", stream_data['imagen']['local_path'],
@@ -278,12 +292,13 @@ def manejar_transmision(stream_data, youtube):
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-tune", "stillimage",
-            "-b:v", "3000k",
-            "-maxrate", "3000k",
-            "-bufsize", "6000k",
+            "-b:v", "4500k",
+            "-maxrate", "4500k",
+            "-bufsize", "9000k",
             "-g", "60",
             "-c:a", "aac",
             "-b:a", "192k",
+            "-ar", "44100",
             "-f", "flv",
             stream_data['rtmp']
         ]
@@ -291,40 +306,69 @@ def manejar_transmision(stream_data, youtube):
         proceso = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         logging.info("🟢 FFmpeg iniciado - Transmitiendo...")
 
-        # Forzar transición a testing después de 3 intentos
+        # Esperar activación del stream
+        timeout_activacion = time.time() + 120  # 2 minutos máximo
+        while time.time() < timeout_activacion:
+            estado = youtube.verificar_estado_stream(stream_data['stream_id'])
+            if estado == "active":
+                logging.info("🎬 Stream activo en YouTube")
+                break
+            logging.warning(f"⏳ Esperando activación del stream... Estado actual: {estado}")
+            time.sleep(10)
+        else:
+            raise Exception("Tiempo de espera agotado para activación del stream")
+
+        # Transición a testing con verificación de estado
         for i in range(3):
+            estado_actual = youtube.verificar_estado_stream(stream_data['stream_id'])
+            if estado_actual != "active":
+                logging.warning(f"Estado stream antes de testing: {estado_actual}")
+                continue
+                
             if youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
-                logging.info("🎬 Transmisión en VISTA PREVIA (forzada)")
+                logging.info("🎬 Transmisión en VISTA PREVIA")
                 break
             logging.warning(f"⚠️ Reintentando testing ({i+1}/3)")
             time.sleep(10)
         else:
             raise Exception("No se pudo forzar vista previa")
 
-        # Esperar tiempo programado + margen
+        # Esperar tiempo programado con margen
         tiempo_restante = (stream_data['start_time'] - datetime.utcnow()).total_seconds()
         if tiempo_restante > 0:
-            logging.info(f"⏳ Esperando {tiempo_restante:.0f}s + margen para LIVE...")
-            time.sleep(tiempo_restante + 30)
+            logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
+            time.sleep(tiempo_restante + 15)
 
-        # Forzar transición a LIVE
-        for i in range(5):  # 5 intentos para LIVE
+        # Forzar transición a LIVE con verificaciones
+        for i in range(5):
+            estado_actual = youtube.verificar_estado_stream(stream_data['stream_id'])
+            if estado_actual != "active":
+                logging.warning(f"Estado stream antes de LIVE: {estado_actual}")
+                time.sleep(5)
+                continue
+                
             if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
-                logging.info("🎥 Transmisión LIVE activada (forzada)")
+                logging.info("🎥 Transmisión LIVE activada")
                 break
             logging.warning(f"⚠️ Reintentando LIVE ({i+1}/5)")
             time.sleep(15)
         else:
             raise Exception("No se pudo forzar LIVE")
 
-        # Reproducir música por 8 horas
+        # Reproducción continua mejorada
         inicio = time.time()
-        while (time.time() - inicio) < 28800:
+        while (time.time() - inicio) < 28800:  # 8 horas
             try:
                 with open(stream_data['musica']['local_path'], 'rb') as f:
-                    with open(fifo_path, 'wb') as fifo:
-                        fifo.write(f.read())
-                time.sleep(0.5)
+                    while True:
+                        data = f.read(1024*1024)  # Leer en bloques de 1MB
+                        if not data:
+                            f.seek(0)  # Reiniciar al final del archivo
+                            continue
+                        with open(fifo_path, 'wb') as fifo:
+                            fifo.write(data)
+                            fifo.flush()
+                        time.sleep(0.1)
             except Exception as e:
                 logging.error(f"⚠️ Error reproducción: {str(e)}")
                 time.sleep(1)
