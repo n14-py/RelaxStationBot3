@@ -102,7 +102,6 @@ class GestorContenido:
             if not all(key in datos for key in ["imagenes", "musica"]):
                 raise ValueError("Estructura JSON inválida")
             
-            # Procesar imágenes
             medios_validos = {"imagenes": [], "musica": []}
             for img in datos['imagenes']:
                 if 'url' in img and 'name' in img:
@@ -113,7 +112,6 @@ class GestorContenido:
                             'local_path': path
                         })
             
-            # Procesar música
             for musica in datos['musica']:
                 if 'url' in musica and 'name' in musica:
                     path = self.descargar_musica(musica['url'])
@@ -155,7 +153,7 @@ class YouTubeManager:
             return None
             
         try:
-            scheduled_start = datetime.utcnow() + timedelta(minutes=5)
+            scheduled_start = datetime.utcnow() + timedelta(minutes=3)
             
             broadcast = self.youtube.liveBroadcasts().insert(
                 part="snippet,status",
@@ -194,24 +192,21 @@ class YouTubeManager:
                 streamId=stream['id']
             ).execute()
 
-            # Generar y subir miniatura
             try:
                 subprocess.run([
                     "ffmpeg", "-y", "-i", imagen_path,
-                    "-vframes", "1",
-                    "-q:v", "2",
+                    "-vframes", "1", "-q:v", "2",
                     "-vf", "scale=1280:720",
                     "/tmp/miniatura.jpg"
                 ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
                 self.youtube.thumbnails().set(
                     videoId=broadcast['id'],
-                    media_body="/tmp/miniatura.jpg",
-                    media_mime_type='image/jpeg'
+                    media_body="/tmp/miniatura.jpg"
                 ).execute()
                 os.remove("/tmp/miniatura.jpg")
             except Exception as e:
-                logging.error(f"⚠️ Error subiendo miniatura: {str(e)}")
+                logging.error(f"⚠️ Error miniatura: {str(e)}")
 
             return {
                 "rtmp": f"{stream['cdn']['ingestionInfo']['ingestionAddress']}/{stream['cdn']['ingestionInfo']['streamName']}",
@@ -223,17 +218,6 @@ class YouTubeManager:
             logging.error(f"🔥 Error creando transmisión: {str(e)}")
             return None
     
-    def verificar_stream(self, stream_id):
-        try:
-            response = self.youtube.liveStreams().list(
-                part="status",
-                id=stream_id
-            ).execute()
-            return response.get('items', [{}])[0].get('status', {}).get('streamStatus')
-        except Exception as e:
-            logging.error(f"⚠️ Error verificando stream: {str(e)}")
-            return None
-    
     def transicionar_estado(self, broadcast_id, estado):
         try:
             self.youtube.liveBroadcasts().transition(
@@ -243,7 +227,7 @@ class YouTubeManager:
             ).execute()
             return True
         except Exception as e:
-            logging.error(f"🚫 Error transicionando a {estado}: {str(e)}")
+            logging.error(f"🚫 Error transición a {estado}: {str(e)}")
             return False
 
 def determinar_categoria(nombre_imagen):
@@ -269,9 +253,7 @@ def generar_titulo(nombre_imagen, categoria):
         'ciudad': ['Metrópolis Nocturna', 'Skyline Urbano', 'Horizonte Moderno'],
         'abstracto': ['Arte Digital', 'Geometría Sagrada', 'Universo Abstracto']
     }
-    beneficios = ['Reducir el Estrés', 'Mejorar la Concentración', 'Promover el Sueño']
-    
-    return f"{random.choice(temas[categoria])} • {random.choice(beneficios)} • {nombre_imagen}"
+    return f"{random.choice(temas[categoria])} • {nombre_imagen}"
 
 def manejar_transmision(stream_data, youtube):
     proceso = None
@@ -283,10 +265,10 @@ def manejar_transmision(stream_data, youtube):
             os.remove(fifo_path)
         os.mkfifo(fifo_path)
 
-        # Iniciar FFmpeg con verificación de errores
+        # Comando FFmpeg con parámetros mejorados
         cmd = [
             "ffmpeg",
-            "-loglevel", "error",
+            "-loglevel", "verbose",  # Más detalle de logs
             "-re",
             "-loop", "1",
             "-i", stream_data['imagen']['local_path'],
@@ -309,63 +291,45 @@ def manejar_transmision(stream_data, youtube):
         proceso = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         logging.info("🟢 FFmpeg iniciado - Transmitiendo...")
 
-        # Verificación mejorada del stream
-        activo = False
-        for i in range(1, 31):  # 30 intentos máximo
-            estado = youtube.verificar_stream(stream_data['stream_id'])
-            logging.info(f"🔍 Estado stream ({i}/30): {estado}")
-            
-            if estado == 'active':
-                logging.info("✅ Stream activo detectado")
-                activo = True
-                break
-                
-            # Leer errores de FFmpeg
-            if proceso.poll() is not None:
-                error = proceso.stderr.read().decode()
-                logging.error(f"🚨 Error FFmpeg: {error}")
-                break
-                
-            time.sleep(10)  # Intervalo aumentado a 10 segundos
-        
-        if not activo:
-            raise Exception("El stream no se activó en 5 minutos")
-
-        # Transición a testing
-        if not youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
-            raise Exception("Fallo transición a testing")
-        logging.info("🎬 Modo vista previa activado")
-
-        # Esperar hasta el tiempo programado
-        tiempo_restante = (stream_data['start_time'] - datetime.utcnow()).total_seconds()
-        if tiempo_restante > 0:
-            logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
-            time.sleep(tiempo_restante + 15)  # Margen de 15 segundos
-        
-        # Transición a live con reintentos
+        # Forzar transición a testing después de 3 intentos
         for i in range(3):
-            if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
-                logging.info("🎥 Transmisión LIVE iniciada")
+            if youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
+                logging.info("🎬 Transmisión en VISTA PREVIA (forzada)")
                 break
-            logging.warning(f"⚠️ Reintentando transición a LIVE ({i+1}/3)")
+            logging.warning(f"⚠️ Reintentando testing ({i+1}/3)")
             time.sleep(10)
         else:
-            raise Exception("No se pudo iniciar transmisión LIVE")
+            raise Exception("No se pudo forzar vista previa")
+
+        # Esperar tiempo programado + margen
+        tiempo_restante = (stream_data['start_time'] - datetime.utcnow()).total_seconds()
+        if tiempo_restante > 0:
+            logging.info(f"⏳ Esperando {tiempo_restante:.0f}s + margen para LIVE...")
+            time.sleep(tiempo_restante + 30)
+
+        # Forzar transición a LIVE
+        for i in range(5):  # 5 intentos para LIVE
+            if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
+                logging.info("🎥 Transmisión LIVE activada (forzada)")
+                break
+            logging.warning(f"⚠️ Reintentando LIVE ({i+1}/5)")
+            time.sleep(15)
+        else:
+            raise Exception("No se pudo forzar LIVE")
 
         # Reproducir música por 8 horas
         inicio = time.time()
         while (time.time() - inicio) < 28800:
             try:
                 with open(stream_data['musica']['local_path'], 'rb') as f:
-                    contenido = f.read()
                     with open(fifo_path, 'wb') as fifo:
-                        fifo.write(contenido)
-                time.sleep(0.5)  # Evitar sobrecarga de CPU
+                        fifo.write(f.read())
+                time.sleep(0.5)
             except Exception as e:
                 logging.error(f"⚠️ Error reproducción: {str(e)}")
                 time.sleep(1)
 
-        logging.info("🕒 Transmisión completada (8 horas)")
+        logging.info("🕒 Transmisión completada")
         return True
 
     except Exception as e:
@@ -379,14 +343,14 @@ def manejar_transmision(stream_data, youtube):
         try:
             youtube.transicionar_estado(stream_data['broadcast_id'], 'complete')
         except Exception as e:
-            logging.error(f"⚠️ Error finalizando: {str(e)}")
+            logging.error(f"🚫 Error finalizando: {str(e)}")
 
 def ciclo_transmision():
     gestor = GestorContenido()
     youtube = YouTubeManager()
     
     if not youtube.youtube:
-        logging.error("🚨 No hay conexión con YouTube")
+        logging.error("🚨 Conexión YouTube fallida")
         return
 
     current_stream = None
@@ -394,7 +358,6 @@ def ciclo_transmision():
     while True:
         try:
             if not current_stream:
-                # Seleccionar contenido
                 imagen = random.choice(gestor.medios['imagenes'])
                 logging.info(f"🖼️ Imagen seleccionada: {imagen['name']}")
                 
@@ -407,10 +370,9 @@ def ciclo_transmision():
                 titulo = generar_titulo(imagen['name'], categoria)
                 logging.info(f"📢 Título: {titulo}")
                 
-                # Crear transmisión
                 stream_info = youtube.crear_transmision(titulo, imagen['local_path'])
                 if not stream_info:
-                    raise Exception("Error al crear transmisión")
+                    raise Exception("Error creación transmisión")
                 
                 current_stream = {
                     **stream_info,
@@ -428,7 +390,7 @@ def ciclo_transmision():
             else:
                 if datetime.utcnow() >= current_stream['end_time'] + timedelta(minutes=5):
                     current_stream = None
-                    logging.info("🔄 Preparando nueva transmisión...")
+                    logging.info("🔄 Reiniciando ciclo...")
                 
                 time.sleep(15)
 
