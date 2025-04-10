@@ -47,14 +47,12 @@ class GestorContenido:
             logging.info(f"⬇️ Procesando imagen: {url}")
             temp_path = os.path.join(self.media_cache_dir, f"temp_{nombre_hash}")
             
-            # Descargar imagen original
             with requests.get(url, stream=True, timeout=30) as r:
                 r.raise_for_status()
                 with open(temp_path, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
             
-            # Convertir a JPEG con ffmpeg
             subprocess.run([
                 "ffmpeg", "-y", "-i", temp_path,
                 "-vf", "scale=1280:720",
@@ -93,11 +91,9 @@ class GestorContenido:
             respuesta.raise_for_status()
             datos = respuesta.json()
             
-            # Procesar imágenes
             for img in datos['imagenes']:
                 img['local_path'] = self.procesar_imagen(img['url'])
             
-            # Procesar música
             for musica in datos['musica']:
                 musica['local_path'] = self.descargar_musica(musica['url'])
             
@@ -128,25 +124,27 @@ class YouTubeManager:
     
     def crear_transmision(self, titulo, imagen_path):
         try:
-            # Crear broadcast
+            scheduled_start = datetime.utcnow() + timedelta(minutes=5)
+            
             broadcast = self.youtube.liveBroadcasts().insert(
                 part="snippet,status",
                 body={
                     "snippet": {
                         "title": titulo,
                         "description": "🎵 Música Chill Continua 24/7 • Mezcla profesional\n🔔 Activa las notificaciones\n👍 Déjanos tu like",
-                        "scheduledStartTime": datetime.utcnow().isoformat() + "Z"
+                        "scheduledStartTime": scheduled_start.isoformat() + "Z"
                     },
                     "status": {
                         "privacyStatus": "public",
                         "selfDeclaredMadeForKids": False,
                         "enableAutoStart": True,
-                        "enableAutoStop": True
+                        "enableAutoStop": True,
+                        "enableArchive": True,
+                        "lifeCycleStatus": "created"
                     }
                 }
             ).execute()
 
-            # Crear stream
             stream = self.youtube.liveStreams().insert(
                 part="snippet,cdn",
                 body={
@@ -162,38 +160,38 @@ class YouTubeManager:
                 }
             ).execute()
 
-            # Vincular broadcast y stream
             self.youtube.liveBroadcasts().bind(
                 part="id,contentDetails",
                 id=broadcast['id'],
                 streamId=stream['id']
             ).execute()
 
-            # Subir miniatura
             self.youtube.thumbnails().set(
                 videoId=broadcast['id'],
-                media_body=imagen_path,
-                media_mime_type='image/jpeg'
+                media_body=imagen_path
             ).execute()
-
-            # Transición a vista previa
-            self.transicionar_estado(broadcast['id'], 'testing')
-            logging.info("✅ Transmisión en VISTA PREVIA - Esperando 30 segundos...")
-            time.sleep(30)
-
-            # Iniciar transmisión
-            self.transicionar_estado(broadcast['id'], 'live')
-            logging.info("🎥 Transmisión LIVE iniciada")
 
             return {
                 "rtmp": f"{stream['cdn']['ingestionInfo']['ingestionAddress']}/{stream['cdn']['ingestionInfo']['streamName']}",
+                "scheduled_start": scheduled_start,
                 "broadcast_id": broadcast['id'],
                 "stream_id": stream['id']
             }
         except Exception as e:
             logging.error(f"Error creando transmisión: {str(e)}")
             return None
-
+    
+    def obtener_estado_stream(self, stream_id):
+        try:
+            response = self.youtube.liveStreams().list(
+                part="status",
+                id=stream_id
+            ).execute()
+            return response.get('items', [{}])[0].get('status', {}).get('streamStatus')
+        except Exception as e:
+            logging.error(f"Error obteniendo estado del stream: {str(e)}")
+            return None
+    
     def transicionar_estado(self, broadcast_id, estado):
         try:
             self.youtube.liveBroadcasts().transition(
@@ -206,45 +204,39 @@ class YouTubeManager:
             logging.error(f"Error transicionando a {estado}: {str(e)}")
             return False
 
-    def finalizar_transmision(self, broadcast_id):
-        try:
-            self.transicionar_estado(broadcast_id, "complete")
-            return True
-        except Exception as e:
-            logging.error(f"Error finalizando transmisión: {str(e)}")
-            return False
-
 def generar_titulo(imagen):
     temas = {
         'naturaleza': ['Bosque', 'Montaña', 'Playa', 'Selva'],
         'ciudad': ['Ciudad Nocturna', 'Metrópolis', 'Skyline', 'Urbano'],
         'abstracto': ['Arte Digital', 'Geometría', 'Fluido', 'Psicodélico']
     }
-    
     categoria = random.choice(list(temas.keys()))
-    tema = random.choice(temas[categoria])
-    
-    return f"{tema} Vibes • Música Chill {imagen['name']} • 24/7"
+    return f"{random.choice(temas[categoria])} Vibes • {imagen['name']} • 24/7"
 
-def manejar_transmision(gestor, youtube, imagen):
+def manejar_transmision(stream_data, gestor, youtube):
     ffmpeg_process = None
-    stream_info = None
     try:
-        stream_info = youtube.crear_transmision(generar_titulo(imagen), imagen['local_path'])
-        if not stream_info:
-            return False
+        # Calcular tiempo de inicio
+        tiempo_inicio_ffmpeg = stream_data['scheduled_start'] - timedelta(minutes=1)
+        espera_ffmpeg = (tiempo_inicio_ffmpeg - datetime.utcnow()).total_seconds()
+        
+        if espera_ffmpeg > 0:
+            logging.info(f"⏳ Esperando {espera_ffmpeg:.0f} segundos para iniciar FFmpeg...")
+            time.sleep(espera_ffmpeg)
 
+        # Configurar FIFO
         fifo_path = os.path.join(gestor.media_cache_dir, "audio_fifo")
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
         os.mkfifo(fifo_path)
 
+        # Iniciar FFmpeg
         ffmpeg_cmd = [
             "ffmpeg",
             "-loglevel", "error",
             "-re",
             "-loop", "1",
-            "-i", imagen['local_path'],
+            "-i", stream_data['imagen']['local_path'],
             "-f", "mp3",
             "-i", fifo_path,
             "-vf", "format=yuv420p,scale=1280:720",
@@ -258,14 +250,44 @@ def manejar_transmision(gestor, youtube, imagen):
             "-c:a", "aac",
             "-b:a", "192k",
             "-f", "flv",
-            stream_info['rtmp']
+            stream_data['rtmp']
         ]
 
         ffmpeg_process = subprocess.Popen(ffmpeg_cmd)
-        logging.info("🟢 Transmisión activa - Reproduciendo música...")
+        logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
 
-        start_time = time.time()
-        while (time.time() - start_time) < 28800:  # 8 horas
+        # Verificar estado del stream
+        max_checks = 10
+        stream_activo = False
+        for _ in range(max_checks):
+            estado = youtube.obtener_estado_stream(stream_data['stream_id'])
+            if estado == 'active':
+                logging.info("✅ Stream activo - Transicionando a testing")
+                if youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
+                    logging.info("🎬 Transmisión en VISTA PREVIA")
+                    stream_activo = True
+                break
+            time.sleep(5)
+        
+        if not stream_activo:
+            logging.error("❌ Stream no se activó a tiempo")
+            ffmpeg_process.kill()
+            return False
+
+        # Esperar hasta el tiempo programado
+        tiempo_restante = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds()
+        if tiempo_restante > 0:
+            logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
+            time.sleep(tiempo_restante)
+
+        # Iniciar transmisión LIVE
+        if not youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
+            raise Exception("No se pudo iniciar la transmisión LIVE")
+        logging.info("🎥 Transmisión LIVE iniciada")
+
+        # Reproducir música durante 8 horas
+        start_time = datetime.utcnow()
+        while (datetime.utcnow() - start_time) < timedelta(hours=8):
             musica = random.choice([m for m in gestor.medios['musica'] if m['local_path']])
             logging.info(f"🎵 Reproduciendo: {musica['name']}")
             
@@ -277,6 +299,7 @@ def manejar_transmision(gestor, youtube, imagen):
                 logging.error(f"Error reproduciendo música: {str(e)}")
 
         logging.info("🕒 Tiempo de transmisión completado (8 horas)")
+        return True
 
     except Exception as e:
         logging.error(f"Error en transmisión: {str(e)}")
@@ -288,27 +311,49 @@ def manejar_transmision(gestor, youtube, imagen):
                 ffmpeg_process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 ffmpeg_process.kill()
-        if stream_info:
-            youtube.finalizar_transmision(stream_info['broadcast_id'])
-    return True
+        youtube.transicionar_estado(stream_data['broadcast_id'], 'complete')
 
 def ciclo_transmision():
     gestor = GestorContenido()
     youtube = YouTubeManager()
+    current_stream = None
     
     while True:
         try:
-            imagen = random.choice([i for i in gestor.medios['imagenes'] if i['local_path']])
-            logging.info(f"🖼️ Iniciando transmisión con: {imagen['name']}")
-            
-            if manejar_transmision(gestor, youtube, imagen):
-                logging.info("⏳ Preparando próxima transmisión en 5 minutos...")
-                time.sleep(300)
+            if not current_stream:
+                imagen = random.choice([i for i in gestor.medios['imagenes'] if i['local_path']])
+                logging.info(f"🖼️ Imagen seleccionada: {imagen['name']}")
+
+                stream_info = youtube.crear_transmision(
+                    generar_titulo(imagen), 
+                    imagen['local_path']
+                )
+                
+                if not stream_info:
+                    raise Exception("Error creando transmisión")
+
+                current_stream = {
+                    **stream_info,
+                    "imagen": imagen,
+                    "end_time": stream_info['scheduled_start'] + timedelta(hours=8)
+                }
+
+                threading.Thread(
+                    target=manejar_transmision,
+                    args=(current_stream, gestor, youtube),
+                    daemon=True
+                ).start()
+
             else:
-                time.sleep(60)
+                if datetime.utcnow() >= current_stream['end_time'] + timedelta(minutes=5):
+                    current_stream = None
+                    logging.info("🔄 Preparando nueva transmisión...")
+                
+                time.sleep(15)
 
         except Exception as e:
-            logging.error(f"Error crítico: {str(e)}")
+            logging.error(f"🔥 Error crítico: {str(e)}")
+            current_stream = None
             time.sleep(60)
 
 @app.route('/health')
