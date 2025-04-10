@@ -5,14 +5,12 @@ import logging
 import time
 import requests
 import hashlib
-import mimetypes
 from datetime import datetime, timedelta
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from flask import Flask
 from waitress import serve
-from urllib.parse import urlparse
 import threading
 
 app = Flask(__name__)
@@ -110,31 +108,23 @@ class GestorContenido:
 
 class YouTubeManager:
     def __init__(self):
-        self.youtube = build('youtube', 'v3', credentials=self.autenticar())
+        self.youtube = self.autenticar()
     
     def autenticar(self):
-        creds = Credentials(
-            token="",
-            refresh_token=YOUTUBE_CREDS['refresh_token'],
-            client_id=YOUTUBE_CREDS['client_id'],
-            client_secret=YOUTUBE_CREDS['client_secret'],
-            token_uri="https://oauth2.googleapis.com/token",
-            scopes=['https://www.googleapis.com/auth/youtube']
-        )
-        creds.refresh(Request())
-        return creds
-    
-    def transition_broadcast(self, broadcast_id, status):
         try:
-            self.youtube.liveBroadcasts().transition(
-                broadcastStatus=status,
-                id=broadcast_id,
-                part="id,status"
-            ).execute()
-            return True
+            creds = Credentials(
+                token="",
+                refresh_token=YOUTUBE_CREDS['refresh_token'],
+                client_id=YOUTUBE_CREDS['client_id'],
+                client_secret=YOUTUBE_CREDS['client_secret'],
+                token_uri="https://oauth2.googleapis.com/token",
+                scopes=['https://www.googleapis.com/auth/youtube']
+            )
+            creds.refresh(Request())
+            return build('youtube', 'v3', credentials=creds)
         except Exception as e:
-            logging.error(f"Error transitioning broadcast to {status}: {str(e)}")
-            return False
+            logging.error(f"Error autenticación YouTube: {str(e)}")
+            return None
     
     def crear_transmision(self, titulo, imagen_path):
         try:
@@ -144,7 +134,7 @@ class YouTubeManager:
                 body={
                     "snippet": {
                         "title": titulo,
-                        "description": "🎵 Música continua 24/7 • Mezcla profesional\n🔔 Activa las notificaciones\n👍 Déjanos tu like",
+                        "description": "🎵 Música Chill Continua 24/7 • Mezcla profesional\n🔔 Activa las notificaciones\n👍 Déjanos tu like",
                         "scheduledStartTime": datetime.utcnow().isoformat() + "Z"
                     },
                     "status": {
@@ -152,7 +142,6 @@ class YouTubeManager:
                         "selfDeclaredMadeForKids": False,
                         "enableAutoStart": True,
                         "enableAutoStop": True
-                        "lifeCycleStatus": "created"
                     }
                 }
             ).execute()
@@ -162,7 +151,7 @@ class YouTubeManager:
                 part="snippet,cdn",
                 body={
                     "snippet": {
-                        "title": "Stream de música continua"
+                        "title": "Stream de música chill"
                     },
                     "cdn": {
                         "format": "1080p",
@@ -188,18 +177,13 @@ class YouTubeManager:
             ).execute()
 
             # Transición a vista previa
-            logging.info("⚠️ Cambiando a modo vista previa...")
-            if not self.transition_broadcast(broadcast['id'], "testing"):
-                return None
-
-            logging.info("✅ Transmisión en vista previa")
-            logging.info("🕒 Esperando 30 segundos para iniciar transmisión...")
+            self.transicionar_estado(broadcast['id'], 'testing')
+            logging.info("✅ Transmisión en VISTA PREVIA - Esperando 30 segundos...")
             time.sleep(30)
 
             # Iniciar transmisión
-            if not self.transition_broadcast(broadcast['id'], "live"):
-                return None
-            logging.info("🎥 Transmisión iniciada")
+            self.transicionar_estado(broadcast['id'], 'live')
+            logging.info("🎥 Transmisión LIVE iniciada")
 
             return {
                 "rtmp": f"{stream['cdn']['ingestionInfo']['ingestionAddress']}/{stream['cdn']['ingestionInfo']['streamName']}",
@@ -210,33 +194,51 @@ class YouTubeManager:
             logging.error(f"Error creando transmisión: {str(e)}")
             return None
 
+    def transicionar_estado(self, broadcast_id, estado):
+        try:
+            self.youtube.liveBroadcasts().transition(
+                broadcastStatus=estado,
+                id=broadcast_id,
+                part="id,status"
+            ).execute()
+            return True
+        except Exception as e:
+            logging.error(f"Error transicionando a {estado}: {str(e)}")
+            return False
+
     def finalizar_transmision(self, broadcast_id):
         try:
-            self.transition_broadcast(broadcast_id, "complete")
+            self.transicionar_estado(broadcast_id, "complete")
             return True
         except Exception as e:
             logging.error(f"Error finalizando transmisión: {str(e)}")
             return False
 
 def generar_titulo(imagen):
-    return f"Música Continua • {imagen['name'].title()} • 24/7"
+    temas = {
+        'naturaleza': ['Bosque', 'Montaña', 'Playa', 'Selva'],
+        'ciudad': ['Ciudad Nocturna', 'Metrópolis', 'Skyline', 'Urbano'],
+        'abstracto': ['Arte Digital', 'Geometría', 'Fluido', 'Psicodélico']
+    }
+    
+    categoria = random.choice(list(temas.keys()))
+    tema = random.choice(temas[categoria])
+    
+    return f"{tema} Vibes • Música Chill {imagen['name']} • 24/7"
 
 def manejar_transmision(gestor, youtube, imagen):
     ffmpeg_process = None
     stream_info = None
     try:
-        # Crear transmisión
         stream_info = youtube.crear_transmision(generar_titulo(imagen), imagen['local_path'])
         if not stream_info:
             return False
 
-        # Configurar FIFO
         fifo_path = os.path.join(gestor.media_cache_dir, "audio_fifo")
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
         os.mkfifo(fifo_path)
 
-        # Comando FFmpeg optimizado
         ffmpeg_cmd = [
             "ffmpeg",
             "-loglevel", "error",
@@ -262,12 +264,8 @@ def manejar_transmision(gestor, youtube, imagen):
         ffmpeg_process = subprocess.Popen(ffmpeg_cmd)
         logging.info("🟢 Transmisión activa - Reproduciendo música...")
 
-        # Duración de la transmisión (8 horas)
         start_time = time.time()
-        end_time = start_time + 28800  # 8 horas en segundos
-
-        # Transmitir música hasta completar el tiempo
-        while time.time() < end_time:
+        while (time.time() - start_time) < 28800:  # 8 horas
             musica = random.choice([m for m in gestor.medios['musica'] if m['local_path']])
             logging.info(f"🎵 Reproduciendo: {musica['name']}")
             
@@ -301,11 +299,11 @@ def ciclo_transmision():
     while True:
         try:
             imagen = random.choice([i for i in gestor.medios['imagenes'] if i['local_path']])
-            logging.info(f"🖼️ Configurando nueva transmisión con: {imagen['name']}")
+            logging.info(f"🖼️ Iniciando transmisión con: {imagen['name']}")
             
             if manejar_transmision(gestor, youtube, imagen):
                 logging.info("⏳ Preparando próxima transmisión en 5 minutos...")
-                time.sleep(300)  # Espera 5 minutos antes de nueva transmisión
+                time.sleep(300)
             else:
                 time.sleep(60)
 
@@ -318,6 +316,6 @@ def health_check():
     return "OK", 200
 
 if __name__ == "__main__":
-    logging.info("🎧 Iniciando transmisor de música continua...")
+    logging.info("🎧 Iniciando transmisor de música chill...")
     threading.Thread(target=ciclo_transmision, daemon=True).start()
     serve(app, host='0.0.0.0', port=10000)
