@@ -11,7 +11,6 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from flask import Flask
 from waitress import serve
-from urllib.parse import urlparse
 import threading
 
 app = Flask(__name__)
@@ -139,7 +138,10 @@ class YouTubeManager:
                 client_id=YOUTUBE_CREDS['client_id'],
                 client_secret=YOUTUBE_CREDS['client_secret'],
                 token_uri="https://oauth2.googleapis.com/token",
-                scopes=['https://www.googleapis.com/auth/youtube']
+                scopes=[
+                    'https://www.googleapis.com/auth/youtube',
+                    'https://www.googleapis.com/auth/youtube.upload'
+                ]
             )
             creds.refresh(Request())
             logging.info("🔑 Autenticación exitosa con YouTube")
@@ -245,6 +247,18 @@ class YouTubeManager:
             logging.error(f"🚫 Error transición a {estado}: {str(e)}")
             return False
 
+    def finalizar_transmision(self, broadcast_id):
+        try:
+            self.youtube.liveBroadcasts().transition(
+                broadcastStatus="complete",
+                id=broadcast_id,
+                part="id,status"
+            ).execute()
+            return True
+        except Exception as e:
+            logging.error(f"🚫 Error finalizando transmisión: {str(e)}")
+            return False
+
 def determinar_categoria(nombre_imagen):
     nombre = nombre_imagen.lower()
     for categoria, palabras in PALABRAS_CLAVE.items():
@@ -279,10 +293,10 @@ def manejar_transmision(stream_data, youtube):
             os.remove(fifo_path)
         os.mkfifo(fifo_path)
 
-        # Comando FFmpeg mejorado
+        # Comando FFmpeg mejorado con logs detallados
         cmd = [
             "ffmpeg",
-            "-loglevel", "verbose",
+            "-loglevel", "debug",
             "-re",
             "-loop", "1",
             "-i", stream_data['imagen']['local_path'],
@@ -303,11 +317,24 @@ def manejar_transmision(stream_data, youtube):
             stream_data['rtmp']
         ]
         
-        proceso = subprocess.Popen(cmd, stderr=subprocess.PIPE)
+        proceso = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
+        )
+        
+        # Monitorear salida de FFmpeg
+        def log_ffmpeg():
+            for line in proceso.stdout:
+                logging.debug(f"FFMPEG: {line.strip()}")
+        
+        threading.Thread(target=log_ffmpeg, daemon=True).start()
+        
         logging.info("🟢 FFmpeg iniciado - Transmitiendo...")
 
-        # Esperar activación del stream
-        timeout_activacion = time.time() + 120  # 2 minutos máximo
+        # Esperar activación del stream con timeout extendido
+        timeout_activacion = time.time() + 300  # 5 minutos
         while time.time() < timeout_activacion:
             estado = youtube.verificar_estado_stream(stream_data['stream_id'])
             if estado == "active":
@@ -318,52 +345,24 @@ def manejar_transmision(stream_data, youtube):
         else:
             raise Exception("Tiempo de espera agotado para activación del stream")
 
-        # Transición a testing con verificación de estado
-        for i in range(3):
-            estado_actual = youtube.verificar_estado_stream(stream_data['stream_id'])
-            if estado_actual != "active":
-                logging.warning(f"Estado stream antes de testing: {estado_actual}")
-                continue
-                
-            if youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
-                logging.info("🎬 Transmisión en VISTA PREVIA")
-                break
-            logging.warning(f"⚠️ Reintentando testing ({i+1}/3)")
-            time.sleep(10)
-        else:
-            raise Exception("No se pudo forzar vista previa")
+        # Transición a testing
+        if not youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
+            logging.warning("⚠️ No se pudo transicionar a testing, continuando...")
 
-        # Esperar tiempo programado con margen
-        tiempo_restante = (stream_data['start_time'] - datetime.utcnow()).total_seconds()
-        if tiempo_restante > 0:
-            logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
-            time.sleep(tiempo_restante + 15)
+        # Transición a live después de 1 minuto
+        time.sleep(60)
+        if not youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
+            logging.warning("⚠️ No se pudo transicionar a live, continuando...")
 
-        # Forzar transición a LIVE con verificaciones
-        for i in range(5):
-            estado_actual = youtube.verificar_estado_stream(stream_data['stream_id'])
-            if estado_actual != "active":
-                logging.warning(f"Estado stream antes de LIVE: {estado_actual}")
-                time.sleep(5)
-                continue
-                
-            if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
-                logging.info("🎥 Transmisión LIVE activada")
-                break
-            logging.warning(f"⚠️ Reintentando LIVE ({i+1}/5)")
-            time.sleep(15)
-        else:
-            raise Exception("No se pudo forzar LIVE")
-
-        # Reproducción continua mejorada
+        # Reproducción continua
         inicio = time.time()
         while (time.time() - inicio) < 28800:  # 8 horas
             try:
                 with open(stream_data['musica']['local_path'], 'rb') as f:
                     while True:
-                        data = f.read(1024*1024)  # Leer en bloques de 1MB
+                        data = f.read(1024*1024)
                         if not data:
-                            f.seek(0)  # Reiniciar al final del archivo
+                            f.seek(0)
                             continue
                         with open(fifo_path, 'wb') as fifo:
                             fifo.write(data)
@@ -385,7 +384,7 @@ def manejar_transmision(stream_data, youtube):
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
         try:
-            youtube.transicionar_estado(stream_data['broadcast_id'], 'complete')
+            youtube.finalizar_transmision(stream_data['broadcast_id'])
         except Exception as e:
             logging.error(f"🚫 Error finalizando: {str(e)}")
 
