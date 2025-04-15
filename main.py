@@ -32,6 +32,8 @@ CONFIG = {
     "CACHE_DIR": os.path.abspath("./radio_cache"),
     "STREAM_DURATION": 8 * 3600,  # 8 horas
     "RETRY_DELAY": 300,  # 5 minutos
+    "STREAM_ACTIVATION_TIMEOUT": 120,  # 2 minutos en segundos
+    "STREAM_CHECK_INTERVAL": 10,        # Chequear cada 10 segundos
     "YOUTUBE_CREDS": {
         'client_id': os.getenv("YOUTUBE_CLIENT_ID"),
         'client_secret': os.getenv("YOUTUBE_CLIENT_SECRET"),
