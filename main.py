@@ -6,16 +6,16 @@ import time
 import requests
 import hashlib
 import json
-from datetime import datetime, timedelta
-from googleapiclient.discovery import build
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from flask import Flask
-from waitress import serve
-from urllib.parse import urlparse
 import threading
 import signal
 import sys
+from datetime import datetime, timedelta
+from urllib.parse import urlparse
+from flask import Flask
+from waitress import serve
+from googleapiclient.discovery import build
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 
 app = Flask(__name__)
 
@@ -26,12 +26,12 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
-# Configuración
+# Configuración global
 CONFIG = {
     "MEDIOS_URL": "https://raw.githubusercontent.com/n14-py/RelaxStationmedios/master/mediosmusic.json",
     "CACHE_DIR": os.path.abspath("./radio_cache"),
-    "STREAM_DURATION": 8 * 3600,  # 8 horas en segundos
-    "RETRY_DELAY": 300,  # 5 minutos entre reintentos
+    "STREAM_DURATION": 8 * 3600,  # 8 horas
+    "RETRY_DELAY": 300,  # 5 minutos
     "YOUTUBE_CREDS": {
         'client_id': os.getenv("YOUTUBE_CLIENT_ID"),
         'client_secret': os.getenv("YOUTUBE_CLIENT_SECRET"),
@@ -45,32 +45,25 @@ CONFIG = {
         "resolution": "1280x720",
         "fps": "30",
         "preset": "ultrafast",
-        "tune": "stillimage"
-    }
+        "tune": "stillimage",
+        "thumbnail_quality": 85
+    },
+    "MAX_THUMBNAIL_SIZE": 2 * 1024 * 1024  # 2MB
 }
 
-class ContentManager:
+class GestorContenido:
     def __init__(self):
         os.makedirs(CONFIG['CACHE_DIR'], exist_ok=True)
-        self.media_data = self._load_media_data()
-        self._verify_content()
+        self.medios = self.cargar_medios()
+        self.verificar_contenido()
     
-    def _load_media_data(self):
-        try:
-            response = requests.get(CONFIG["MEDIOS_URL"], timeout=15)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            logging.error(f"Error cargando medios: {str(e)}")
-            return {"imagenes": [], "musica": []}
+    def verificar_contenido(self):
+        if not self.medios['imagenes']:
+            logging.error("❌ No hay imágenes disponibles en el JSON")
+        if not self.medios['musica']:
+            logging.error("❌ No hay música disponible en el JSON")
     
-    def _verify_content(self):
-        if not self.media_data.get('imagenes'):
-            logging.error("No se encontraron imágenes en el JSON")
-        if not self.media_data.get('musica'):
-            logging.error("No se encontraron pistas de audio en el JSON")
-    
-    def _process_google_drive_url(self, url):
+    def procesar_url_google_drive(self, url):
         try:
             if "drive.google.com" in url:
                 file_id = url.split('id=')[-1].split('&')[0]
@@ -79,74 +72,96 @@ class ContentManager:
         except:
             return url
     
-    def _download_file(self, url, is_image=False):
+    def optimizar_imagen(self, ruta_original):
         try:
-            url = self._process_google_drive_url(url)
-            file_hash = hashlib.md5(url.encode()).hexdigest()
-            extension = ".jpg" if is_image else ".mp3"
-            local_path = os.path.join(CONFIG['CACHE_DIR'], f"{file_hash}{extension}")
+            ruta_optimizada = f"{ruta_original}_opt.jpg"
+            calidad = CONFIG['FFMPEG_PARAMS']['thumbnail_quality']
             
-            if os.path.exists(local_path):
-                return local_path
+            # Primera pasada: Redimensionar
+            subprocess.run([
+                "ffmpeg", "-y", "-i", ruta_original,
+                "-vf", "scale=1280:720:force_original_aspect_ratio=increase",
+                "-q:v", "2", ruta_optimizada
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
-            logging.info(f"Descargando {'imagen' if is_image else 'audio'}: {url}")
+            # Segunda pasada: Optimizar tamaño
+            while os.path.getsize(ruta_optimizada) > CONFIG['MAX_THUMBNAIL_SIZE'] and calidad > 30:
+                calidad -= 5
+                subprocess.run([
+                    "ffmpeg", "-y", "-i", ruta_optimizada,
+                    "-q:v", str(calidad), "-compression_level", "6",
+                    ruta_optimizada
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            return ruta_optimizada if os.path.exists(ruta_optimizada) else None
+        except Exception as e:
+            logging.error(f"Error optimizando imagen: {str(e)}")
+            return None
+    
+    def descargar_archivo(self, url, es_imagen=False):
+        try:
+            url = self.procesar_url_google_drive(url)
+            nombre_hash = hashlib.md5(url.encode()).hexdigest()
+            extension = ".jpg" if es_imagen else ".mp3"
+            ruta_local = os.path.join(CONFIG['CACHE_DIR'], f"{nombre_hash}{extension}")
+            
+            if os.path.exists(ruta_local):
+                return ruta_local
+
+            logging.info(f"⬇️ Descargando {'imagen' if es_imagen else 'música'}: {url}")
             with requests.get(url, stream=True, timeout=30) as r:
                 r.raise_for_status()
-                with open(local_path, 'wb') as f:
+                with open(ruta_local, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
             
-            return self._optimize_image(local_path) if is_image else local_path
-        
+            if es_imagen:
+                return self.optimizar_imagen(ruta_local)
+            return ruta_local
         except Exception as e:
             logging.error(f"Error descargando archivo: {str(e)}")
             return None
     
-    def _optimize_image(self, image_path):
+    def cargar_medios(self):
         try:
-            optimized_path = f"{image_path}_optimized.jpg"
-            subprocess.run([
-                "ffmpeg", "-y", "-i", image_path,
-                "-vf", "scale=1280:720:force_original_aspect_ratio=increase",
-                "-q:v", "2", "-compression_level", "6",
-                optimized_path
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return optimized_path if os.path.exists(optimized_path) else image_path
-        except Exception as e:
-            logging.error(f"Error optimizando imagen: {str(e)}")
-            return image_path
-    
-    def get_random_content(self):
-        try:
-            image = random.choice([
-                img for img in self.media_data['imagenes']
-                if self._download_file(img['url'], is_image=True)
-            ])
-            music = random.sample([
-                track for track in self.media_data['musica']
-                if self._download_file(track['url'])
-            ], min(50, len(self.media_data['musica'])))
+            respuesta = requests.get(CONFIG["MEDIOS_URL"], timeout=20)
+            respuesta.raise_for_status()
+            datos = respuesta.json()
+            
+            # Procesar imágenes
+            imagenes_procesadas = []
+            for img in datos['imagenes']:
+                local_path = self.descargar_archivo(img['url'], es_imagen=True)
+                if local_path:
+                    imagenes_procesadas.append({
+                        "name": img['name'],
+                        "local_path": local_path
+                    })
+            
+            # Procesar música
+            musica_procesada = []
+            for m in datos['musica']:
+                local_path = self.descargar_archivo(m['url'])
+                if local_path:
+                    musica_procesada.append({
+                        "name": m['name'],
+                        "local_path": local_path
+                    })
             
             return {
-                "image": {
-                    "name": image['name'],
-                    "path": self._download_file(image['url'], is_image=True)
-                },
-                "music": [{
-                    "name": track['name'],
-                    "path": self._download_file(track['url'])
-                } for track in music]
+                "imagenes": imagenes_procesadas,
+                "musica": musica_procesada
             }
         except Exception as e:
-            logging.error(f"Error seleccionando contenido: {str(e)}")
-            return None
+            logging.error(f"Error cargando medios: {str(e)}")
+            return {"imagenes": [], "musica": []}
 
-class YouTubeStreamer:
+class YouTubeManager:
     def __init__(self):
-        self.youtube = self._authenticate()
+        self.youtube = self.autenticar()
     
-    def _authenticate(self):
+    def autenticar(self):
         try:
             creds = Credentials(
                 token="",
@@ -159,19 +174,19 @@ class YouTubeStreamer:
             creds.refresh(Request())
             return build('youtube', 'v3', credentials=creds)
         except Exception as e:
-            logging.error(f"Error autenticando YouTube: {str(e)}")
+            logging.error(f"Error autenticación YouTube: {str(e)}")
             return None
     
-    def create_stream(self, title, image_path):
+    def crear_transmision(self, titulo, imagen_path):
         try:
-            scheduled_start = datetime.utcnow() + timedelta(minutes=2)
+            scheduled_start = datetime.utcnow() + timedelta(minutes=5)
             
             broadcast = self.youtube.liveBroadcasts().insert(
                 part="snippet,status",
                 body={
                     "snippet": {
-                        "title": title,
-                        "description": "🎵 24/7 Relax Station Radio • Música Continua\n\nDisfruta de nuestra programación musical las 24 horas\n\n🔔 Activa las notificaciones\n\n#MusicaContinua #RadioOnline #Relax",
+                        "title": titulo,
+                        "description": "🎵 Relax Station Radio • Música Continua 24/7\n\nDisfruta de nuestra programación musical las 24 horas\n\n🔔 Activa las notificaciones\n\n#MusicaContinua #RadioOnline #Relax",
                         "scheduledStartTime": scheduled_start.isoformat() + "Z"
                     },
                     "status": {
@@ -187,7 +202,7 @@ class YouTubeStreamer:
             stream = self.youtube.liveStreams().insert(
                 part="snippet,cdn",
                 body={
-                    "snippet": {"title": "Main Radio Stream"},
+                    "snippet": {"title": "Stream Principal Radio"},
                     "cdn": {
                         "ingestionType": "rtmp",
                         "resolution": "1080p",
@@ -202,70 +217,83 @@ class YouTubeStreamer:
                 streamId=stream['id']
             ).execute()
 
-            if image_path and os.path.exists(image_path):
+            # Subir miniatura optimizada
+            if imagen_path and os.path.exists(imagen_path):
                 self.youtube.thumbnails().set(
                     videoId=broadcast['id'],
-                    media_body=image_path
+                    media_body=imagen_path,
+                    media_mime_type='image/jpeg'  # Forzar tipo MIME
                 ).execute()
 
             return {
-                "rtmp_url": f"{stream['cdn']['ingestionInfo']['ingestionAddress']}/{stream['cdn']['ingestionInfo']['streamName']}",
+                "rtmp": f"{stream['cdn']['ingestionInfo']['ingestionAddress']}/{stream['cdn']['ingestionInfo']['streamName']}",
                 "broadcast_id": broadcast['id'],
                 "stream_id": stream['id'],
-                "start_time": scheduled_start
+                "scheduled_start": scheduled_start
             }
         except Exception as e:
-            logging.error(f"Error creando stream: {str(e)}")
+            logging.error(f"Error creando transmisión: {str(e)}")
             return None
     
-    def transition_stream(self, broadcast_id, status):
+    def obtener_estado_stream(self, stream_id):
+        try:
+            response = self.youtube.liveStreams().list(
+                part="status",
+                id=stream_id
+            ).execute()
+            return response.get('items', [{}])[0].get('status', {}).get('streamStatus')
+        except Exception as e:
+            logging.error(f"Error obteniendo estado del stream: {str(e)}")
+            return None
+    
+    def transicionar_estado(self, broadcast_id, estado):
         try:
             self.youtube.liveBroadcasts().transition(
-                broadcastStatus=status,
+                broadcastStatus=estado,
                 id=broadcast_id,
-                part="status"
+                part="id,status"
             ).execute()
             return True
         except Exception as e:
-            logging.error(f"Error cambiando estado a {status}: {str(e)}")
+            logging.error(f"Error transicionando a {estado}: {str(e)}")
             return False
     
-    def end_stream(self, broadcast_id):
+    def finalizar_transmision(self, broadcast_id):
         try:
             self.youtube.liveBroadcasts().transition(
                 broadcastStatus="complete",
                 id=broadcast_id,
-                part="status"
+                part="id,status"
             ).execute()
             return True
         except Exception as e:
-            logging.error(f"Error finalizando stream: {str(e)}")
+            logging.error(f"Error finalizando transmisión: {str(e)}")
             return False
 
-class RadioEngine:
-    def __init__(self):
-        self.content_manager = ContentManager()
-        self.youtube = YouTubeStreamer()
-        self.current_stream = None
-        self.ffmpeg_process = None
-    
-    def _generate_playlist(self, tracks):
-        playlist_path = os.path.join(CONFIG['CACHE_DIR'], "playlist.m3u")
-        with open(playlist_path, "w") as f:
-            f.write("#EXTM3U\n")
-            for track in tracks:
-                f.write(f"#EXTINF:-1,{track['name']}\n{track['path']}\n")
-        return playlist_path
-    
-    def _build_ffmpeg_command(self, image_path, playlist_path, rtmp_url):
-        return [
+def generar_playlist(canciones, cache_dir):
+    playlist_path = os.path.join(cache_dir, "playlist.m3u")
+    with open(playlist_path, "w") as f:
+        f.write("#EXTM3U\n")
+        for cancion in canciones:
+            f.write(f"#EXTINF:-1,{cancion['name']}\n{cancion['local_path']}\n")
+    return playlist_path
+
+def generar_titulo(imagen):
+    return f"🎧 {imagen['name']} • Música Continua • {datetime.utcnow().strftime('%H:%M UTC')}"
+
+def manejar_transmision(stream_data, youtube, imagen, playlist_path):
+    proceso = None
+    try:
+        # Configurar FFmpeg
+        cmd = [
             "ffmpeg",
             "-loglevel", "error",
             "-re",
-            "-loop", "1",
-            "-i", image_path,
+            "-stream_loop", "-1",
+            "-i", imagen['local_path'],
             "-f", "concat",
             "-safe", "0",
+            "-stream_loop", "-1",
             "-i", playlist_path,
             "-vf", f"scale={CONFIG['FFMPEG_PARAMS']['resolution']},setsar=1",
             "-c:v", CONFIG['FFMPEG_PARAMS']['video_codec'],
@@ -277,101 +305,119 @@ class RadioEngine:
             "-c:a", CONFIG['FFMPEG_PARAMS']['audio_codec'],
             "-b:a", CONFIG['FFMPEG_PARAMS']['audio_bitrate'],
             "-f", "flv",
-            rtmp_url
+            stream_data['rtmp']
         ]
-    
-    def _start_stream(self, content):
-        try:
-            playlist_path = self._generate_playlist(content['music'])
-            stream_info = self.youtube.create_stream(
-                f"🎧 {content['image']['name']} • Música Continua • 24/7",
-                content['image']['path']
-            )
-            
-            if not stream_info:
-                return False
 
-            cmd = self._build_ffmpeg_command(
-                content['image']['path'],
-                playlist_path,
-                stream_info['rtmp_url']
-            )
-            
-            self.ffmpeg_process = subprocess.Popen(cmd)
-            logging.info("Iniciando FFmpeg...")
-            
-            # Esperar conexión estable
-            time.sleep(30)
-            
-            if self.youtube.transition_stream(stream_info['broadcast_id'], 'live'):
-                logging.info("Transmisión LIVE activada")
-                self.current_stream = {
-                    "start_time": datetime.now(),
-                    "broadcast_id": stream_info['broadcast_id'],
-                    "process": self.ffmpeg_process
-                }
-                return True
-            return False
-        except Exception as e:
-            logging.error(f"Error iniciando stream: {str(e)}")
-            return False
-    
-    def _monitor_stream(self):
-        while self.ffmpeg_process and self.ffmpeg_process.poll() is None:
-            if (datetime.now() - self.current_stream['start_time']).total_seconds() > CONFIG['STREAM_DURATION']:
-                logging.info("Tiempo de transmisión completado")
-                self.stop_stream()
+        proceso = subprocess.Popen(cmd)
+        logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
+
+        # Esperar activación del stream
+        max_checks = 10
+        for _ in range(max_checks):
+            estado = youtube.obtener_estado_stream(stream_data['stream_id'])
+            if estado == 'active':
+                logging.info("✅ Stream activo - Transicionando a testing")
+                if youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
+                    logging.info("🎬 Transmisión en VISTA PREVIA")
                 break
-            time.sleep(30)
+            time.sleep(5)
+        else:
+            raise Exception("Stream no se activó a tiempo")
+
+        # Transición a LIVE en el tiempo programado
+        tiempo_restante = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds()
+        if tiempo_restante > 0:
+            logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
+            time.sleep(tiempo_restante)
+        
+        if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
+            logging.info("🎥 Transmisión LIVE iniciada")
+        else:
+            raise Exception("No se pudo iniciar la transmisión LIVE")
+
+        # Mantener transmisión por 8 horas
+        tiempo_inicio = datetime.utcnow()
+        while (datetime.utcnow() - tiempo_inicio) < timedelta(hours=8):
+            if proceso.poll() is not None:
+                logging.warning("⚡ Reconectando FFmpeg...")
+                proceso.kill()
+                proceso = subprocess.Popen(cmd)
+            time.sleep(15)
+        
+        proceso.kill()
+        youtube.finalizar_transmision(stream_data['broadcast_id'])
+        logging.info("🛑 Transmisión finalizada correctamente")
+        return True
+
+    except Exception as e:
+        logging.error(f"Error en transmisión: {str(e)}")
+        if proceso:
+            proceso.kill()
+        youtube.finalizar_transmision(stream_data['broadcast_id'])
+        return False
+
+def ciclo_transmision():
+    gestor = GestorContenido()
+    youtube = YouTubeManager()
+    current_stream = None
     
-    def start_radio(self):
-        while True:
-            try:
-                content = self.content_manager.get_random_content()
-                if not content:
-                    logging.error("No se pudo obtener contenido, reintentando...")
+    while True:
+        try:
+            if not current_stream:
+                if not gestor.medios['imagenes'] or not gestor.medios['musica']:
+                    logging.error("🚨 Contenido insuficiente - Reintentando en 5 minutos...")
                     time.sleep(CONFIG['RETRY_DELAY'])
                     continue
                 
-                if self._start_stream(content):
-                    self._monitor_stream()
-                else:
-                    time.sleep(CONFIG['RETRY_DELAY'])
+                imagen = random.choice(gestor.medios['imagenes'])
+                canciones = random.sample(gestor.medios['musica'], len(gestor.medios['musica']))
+                playlist_path = generar_playlist(canciones, CONFIG['CACHE_DIR'])
                 
-            except Exception as e:
-                logging.error(f"Error crítico: {str(e)}")
-                time.sleep(CONFIG['RETRY_DELAY'])
-    
-    def stop_stream(self):
-        if self.ffmpeg_process:
-            self.ffmpeg_process.terminate()
-            try:
-                self.ffmpeg_process.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                self.ffmpeg_process.kill()
-            self.ffmpeg_process = None
-        
-        if self.current_stream:
-            self.youtube.end_stream(self.current_stream['broadcast_id'])
-            self.current_stream = None
+                stream_info = youtube.crear_transmision(
+                    generar_titulo(imagen),
+                    imagen['local_path']
+                )
+                
+                if not stream_info:
+                    raise Exception("Error creando transmisión")
+                
+                current_stream = {
+                    "data": stream_info,
+                    "imagen": imagen,
+                    "playlist": playlist_path,
+                    "start_time": datetime.utcnow()
+                }
 
-def signal_handler(sig, frame):
-    logging.info("Deteniendo radio...")
-    radio.stop_stream()
-    sys.exit(0)
+                threading.Thread(
+                    target=manejar_transmision,
+                    args=(stream_info, youtube, imagen, playlist_path),
+                    daemon=True
+                ).start()
+
+            else:
+                tiempo_transcurrido = (datetime.utcnow() - current_stream['start_time']).total_seconds()
+                if tiempo_transcurrido > CONFIG['STREAM_DURATION']:
+                    logging.info("🔄 Tiempo de transmisión completado - Preparando nueva...")
+                    current_stream = None
+                time.sleep(15)
+
+        except Exception as e:
+            logging.error(f"🔥 Error crítico: {str(e)}")
+            current_stream = None
+            time.sleep(CONFIG['RETRY_DELAY'])
 
 @app.route('/health')
 def health_check():
     return "OK", 200
 
+def signal_handler(sig, frame):
+    logging.info("\n🛑 Deteniendo servicio...")
+    sys.exit(0)
+
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    radio = RadioEngine()
-    
-    logging.info("Iniciando servidor de radio 24/7...")
-    radio_thread = threading.Thread(target=radio.start_radio, daemon=True)
-    radio_thread.start()
-    
+    logging.info("🎶 Iniciando Radio 24/7...")
+    threading.Thread(target=ciclo_transmision, daemon=True).start()
     serve(app, host='0.0.0.0', port=10000)
