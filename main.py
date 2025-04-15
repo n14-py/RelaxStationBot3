@@ -32,6 +32,7 @@ CONFIG = {
     "CACHE_DIR": os.path.abspath("./radio_cache"),
     "STREAM_DURATION": 8 * 3600,
     "RETRY_DELAY": 300,
+    "STREAM_ACTIVATION_TIMEOUT": 120,
     "YOUTUBE_CREDS": {
         'client_id': os.getenv("YOUTUBE_CLIENT_ID"),
         'client_secret': os.getenv("YOUTUBE_CLIENT_SECRET"),
@@ -138,13 +139,13 @@ class YouTubeManager:
     
     def crear_transmision(self, titulo, imagen_path):
         try:
-            scheduled_start = datetime.utcnow() + timedelta(minutes=2)
+            scheduled_start = datetime.utcnow() + timedelta(minutes=5)
             broadcast = self.youtube.liveBroadcasts().insert(
                 part="snippet,status",
                 body={
                     "snippet": {
                         "title": titulo,
-                        "description": "🎵 Música Continua 24/7 • https://github.com/n14-py/RelaxStation",
+                        "description": "🎵 Música Continua 24/7 • Transmisión Automática\n👉 https://github.com/n14-py/RelaxStation",
                         "scheduledStartTime": scheduled_start.isoformat() + "Z"
                     },
                     "status": {
@@ -190,6 +191,17 @@ class YouTubeManager:
             logging.error(f"Error creando transmisión: {str(e)}")
             return None
     
+    def obtener_estado(self, stream_id):
+        try:
+            response = self.youtube.liveStreams().list(
+                part="status",
+                id=stream_id
+            ).execute()
+            return response.get('items', [{}])[0].get('status', {}).get('streamStatus')
+        except Exception as e:
+            logging.error(f"Error obteniendo estado: {str(e)}")
+            return None
+    
     def transicionar_estado(self, broadcast_id, estado):
         try:
             self.youtube.liveBroadcasts().transition(
@@ -218,8 +230,11 @@ def manejar_transmision(stream_data, youtube, imagen, canciones):
     fifo_path = os.path.join(CONFIG['CACHE_DIR'], "audio_fifo")
     
     try:
+        if os.path.exists(fifo_path):
+            os.remove(fifo_path)
         os.mkfifo(fifo_path)
-        
+
+        # Comando FFmpeg mejorado
         cmd = [
             "ffmpeg",
             "-loglevel", "verbose",
@@ -230,7 +245,7 @@ def manejar_transmision(stream_data, youtube, imagen, canciones):
             "-safe", "0",
             "-protocol_whitelist", "file,pipe",
             "-i", fifo_path,
-            "-vf", f"fps=30,format={CONFIG['FFMPEG_PARAMS']['pixel_format']},scale=1280:720",
+            "-vf", f"fps={CONFIG['FFMPEG_PARAMS']['fps']},format={CONFIG['FFMPEG_PARAMS']['pixel_format']},scale=1280:720",
             "-c:v", CONFIG['FFMPEG_PARAMS']['video_codec'],
             "-preset", CONFIG['FFMPEG_PARAMS']['preset'],
             "-tune", CONFIG['FFMPEG_PARAMS']['tune'],
@@ -238,6 +253,7 @@ def manejar_transmision(stream_data, youtube, imagen, canciones):
             "-maxrate", CONFIG['FFMPEG_PARAMS']['video_bitrate'],
             "-bufsize", "6000k",
             "-g", "60",
+            "-keyint_min", "60",
             "-c:a", CONFIG['FFMPEG_PARAMS']['audio_codec'],
             "-b:a", CONFIG['FFMPEG_PARAMS']['audio_bitrate'],
             "-af", CONFIG['FFMPEG_PARAMS']['audio_filter'],
@@ -249,35 +265,51 @@ def manejar_transmision(stream_data, youtube, imagen, canciones):
         
         def log_ffmpeg():
             while proceso.poll() is None:
-                output = proceso.stderr.readline().decode()
-                if output: logging.info(f"FFMPEG: {output.strip()}")
+                output = proceso.stderr.readline().decode().strip()
+                if output: logging.info(f"FFMPEG: {output}")
 
         threading.Thread(target=log_ffmpeg, daemon=True).start()
 
-        # Esperar activación
-        for _ in range(12):
+        # Esperar activación y transicionar estados
+        for _ in range(12):  # 12 intentos cada 10 segundos (2 minutos total)
             estado = youtube.obtener_estado(stream_data['stream_id'])
-            if estado == 'active' and youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
-                break
+            if estado == 'active':
+                if youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
+                    logging.info("✅ Modo testing activado")
+                    break
             time.sleep(10)
+        else:
+            raise Exception("No se pudo activar el stream")
 
-        # Reproducción continua
+        # Esperar hasta el horario programado
+        tiempo_restante = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds()
+        if tiempo_restante > 0:
+            logging.info(f"⏳ Esperando {tiempo_restante:.0f} segundos para LIVE...")
+            time.sleep(tiempo_restante)
+        
+        if not youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
+            raise Exception("Error iniciando transmisión LIVE")
+
+        # Reproducción aleatoria continua
         tiempo_inicio = datetime.utcnow()
         while (datetime.utcnow() - tiempo_inicio) < timedelta(hours=8):
             cancion = random.choice(canciones)
             logging.info(f"🎵 Reproduciendo: {cancion['name']}")
             
-            with open(cancion['local_path'], 'rb') as audio_file:
-                with open(fifo_path, 'wb') as fifo:
-                    fifo.write(audio_file.read())
-            
-            time.sleep(1)  # Breve pausa entre canciones
+            try:
+                with open(cancion['local_path'], 'rb') as audio_file:
+                    with open(fifo_path, 'wb') as fifo:
+                        fifo.write(audio_file.read())
+                time.sleep(1)  # Pequeña pausa entre canciones
+            except Exception as e:
+                logging.error(f"Error reproduciendo canción: {str(e)}")
+                continue
 
         proceso.terminate()
         return True
 
     except Exception as e:
-        logging.error(f"Error en transmisión: {str(e)}")
+        logging.error(f"🚨 Error en transmisión: {str(e)}")
         return False
     finally:
         if os.path.exists(fifo_path):
@@ -292,25 +324,45 @@ def ciclo_transmision():
     while True:
         try:
             if not gestor.medios['imagenes'] or not gestor.medios['musica']:
+                logging.error("🚨 Contenido insuficiente, reintentando...")
                 time.sleep(CONFIG['RETRY_DELAY'])
                 continue
             
             imagen = random.choice(gestor.medios['imagenes'])
             canciones = [c for c in gestor.medios['musica'] if c['local_path']]
             
-            stream_info = youtube.crear_transmision(generar_titulo(imagen), imagen['local_path'])
-            if not stream_info: continue
+            if not canciones:
+                logging.error("🚨 No hay canciones válidas")
+                time.sleep(CONFIG['RETRY_DELAY'])
+                continue
             
-            threading.Thread(
+            logging.info(f"🖼️ Iniciando transmisión con: {imagen['name']}")
+            stream_info = youtube.crear_transmision(generar_titulo(imagen), imagen['local_path'])
+            
+            if not stream_info:
+                time.sleep(CONFIG['RETRY_DELAY'])
+                continue
+            
+            # Manejar transmisión en hilo separado
+            hilo = threading.Thread(
                 target=manejar_transmision,
                 args=(stream_info, youtube, imagen, canciones),
                 daemon=True
-            ).start()
+            )
+            hilo.start()
             
-            time.sleep(CONFIG['STREAM_DURATION'])
+            # Esperar duración de la transmisión
+            tiempo_inicio = datetime.utcnow()
+            while (datetime.utcnow() - tiempo_inicio) < timedelta(hours=8):
+                if not hilo.is_alive():
+                    break
+                time.sleep(15)
+            
+            logging.info("🔄 Preparando nueva transmisión...")
+            time.sleep(60)  # Esperar 1 minuto entre transmisiones
             
         except Exception as e:
-            logging.error(f"Error crítico: {str(e)}")
+            logging.error(f"🔥 Error crítico: {str(e)}")
             time.sleep(CONFIG['RETRY_DELAY'])
 
 @app.route('/health')
@@ -324,6 +376,6 @@ def signal_handler(sig, frame):
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    logging.info("\n🎧 Iniciando Transmisor Automático 24/7...\n" + "="*50)
+    logging.info("\n" + "="*50 + "\n🎧 Iniciando Transmisor 24/7 - Modo Automático\n" + "="*50)
     threading.Thread(target=ciclo_transmision, daemon=True).start()
     serve(app, host='0.0.0.0', port=10000)
