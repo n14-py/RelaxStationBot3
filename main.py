@@ -352,12 +352,12 @@ def manejar_transmision(stream_data, youtube, imagen, playlist_path):
             "-maxrate", CONFIG['FFMPEG_PARAMS']['video_bitrate'],
             "-bufsize", CONFIG['FFMPEG_PARAMS']['bufsize'],
             "-r", CONFIG['FFMPEG_PARAMS']['fps'],
-            "-g", CONFIG['FFMPEG_PARAMS']['gop"],
+            "-g", CONFIG['FFMPEG_PARAMS']['gop'],
             "-c:a", CONFIG['FFMPEG_PARAMS']['audio_codec'],
             "-b:a", CONFIG['FFMPEG_PARAMS']['audio_bitrate'],
             "-f", "flv",
             stream_data['rtmp_url']
-        ]
+        ] 
         
         # Iniciar FFmpeg
         proceso_ffmpeg = subprocess.Popen(
