@@ -107,7 +107,8 @@ class GestorContenido:
             url = self.procesar_url_google_drive(url)
             nombre_hash = hashlib.md5(url.encode()).hexdigest()
             extension = ".jpg" if es_imagen else ".mp3"
-            ruta_local = os.path.join(CONFIG['CACHE_DIR'], f"{nombre_hash}{extension}")
+            # ✅ SOLUCIÓN: Usar rutas absolutas
+            ruta_local = os.path.abspath(os.path.join(CONFIG['CACHE_DIR'], f"{nombre_hash}{extension}"))
             
             if os.path.exists(ruta_local):
                 logging.info(f"♻️ Usando caché: {'imagen' if es_imagen else 'audio'} {nombre_hash}")
@@ -295,14 +296,27 @@ class YouTubeManager:
             logging.error(f"Error finalizando transmisión: {str(e)}")
             return False
 
+# ✅ SOLUCIÓN: Playlist corregida (eliminar 'file:')
 def generar_playlist(canciones, cache_dir):
     try:
         logging.info("🎧 Generando playlist...")
-        playlist_path = os.path.join(cache_dir, "playlist.m3u")
+        playlist_path = os.path.abspath(os.path.join(cache_dir, "playlist.m3u"))
         with open(playlist_path, "w") as f:
             f.write("#EXTM3U\n")
             for cancion in canciones:
-                f.write(f"#EXTINF:-1,{cancion['name']}\nfile:{cancion['local_path']}\n")
+                # ✅ SOLUCIÓN: Línea corregida
+                f.write(f"#EXTINF:-1,{cancion['name']}\n{cancion['local_path']}\n")
+        
+        # Validación adicional
+        if not os.path.exists(playlist_path):
+            logging.error("❌ El archivo de playlist no se generó correctamente")
+            return None
+            
+        with open(playlist_path) as f:
+            if len(f.readlines()) < 2:
+                logging.error("❌ Playlist vacía o corrupta")
+                return None
+        
         logging.info(f"✅ Playlist generada con {len(canciones)} canciones")
         return playlist_path
     except Exception as e:
@@ -317,6 +331,11 @@ def generar_titulo(imagen):
 def manejar_transmision(stream_data, youtube, imagen, playlist_path):
     proceso = None
     try:
+        # ✅ SOLUCIÓN: Validación de playlist
+        if not os.path.exists(playlist_path):
+            logging.error("❌ Playlist no encontrada")
+            return False
+            
         logging.info("🎬 Iniciando proceso de transmisión...")
         logging.info(f"📌 Detalles:\n- Imagen: {imagen['name']}\n- RTMP: {stream_data['rtmp']}\n- Programado: {stream_data['scheduled_start']}")
 
@@ -325,10 +344,10 @@ def manejar_transmision(stream_data, youtube, imagen, playlist_path):
             "-loglevel", "verbose",
             "-re",
             "-stream_loop", "-1",
-            "-i", imagen['local_path'],
+            "-i", os.path.abspath(imagen['local_path']),
             "-f", "concat",
             "-safe", "0",
-            "-i", playlist_path,
+            "-i", os.path.abspath(playlist_path)),
             "-vf", "scale=1280:720:force_original_aspect_ratio=increase",
             "-c:v", CONFIG['FFMPEG_PARAMS']['video_codec'],
             "-preset", CONFIG['FFMPEG_PARAMS']['preset'],
