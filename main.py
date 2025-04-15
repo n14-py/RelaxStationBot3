@@ -24,7 +24,7 @@ logging.basicConfig(
 )
 
 # Configuración
-MEDIOS_URL = "https://raw.githubusercontent.com/n14-py/RelaxStationmedios/master/mediosmusic.json"
+MEDIOS_URL = "https://raw.githubusercontent.com/n14-py/RelaxStationmedios/master/mediosradio.json"
 YOUTUBE_CREDS = {
     'client_id': os.getenv("YOUTUBE_CLIENT_ID"),
     'client_secret': os.getenv("YOUTUBE_CLIENT_SECRET"),
@@ -36,98 +36,103 @@ class GestorContenido:
         self.media_cache_dir = os.path.abspath("./media_cache")
         os.makedirs(self.media_cache_dir, exist_ok=True)
         self.medios = self.cargar_medios()
+        self.verificar_contenido()
+    
+    def verificar_contenido(self):
+        if not self.medios['imagenes']:
+            logging.error("❌ No se encontraron imágenes válidas en el JSON")
+        if not self.medios['musica']:
+            logging.error("❌ No se encontraron canciones válidas en el JSON")
+    
+    def procesar_google_drive_url(self, url):
+        try:
+            parsed = urlparse(url)
+            query = parsed.query
+            params = dict(x.split('=') for x in query.split('&'))
+            return f"https://drive.google.com/uc?export=download&id={params['id']}&confirm=t"
+        except:
+            return url
     
     def optimizar_imagen(self, ruta_original):
         try:
-            nombre_hash = hashlib.md5(ruta_original.encode()).hexdigest()
-            ruta_optimizada = os.path.join(self.media_cache_dir, f"{nombre_hash}_opt.jpg")
-            
+            ruta_optimizada = f"{ruta_original}_opt.jpg"
             subprocess.run([
                 "ffmpeg", "-y",
                 "-i", ruta_original,
                 "-vf", "scale=1280:720:force_original_aspect_ratio=increase",
                 "-q:v", "2",
+                "-compression_level", "6",
                 ruta_optimizada
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
             return ruta_optimizada if os.path.exists(ruta_optimizada) else None
         except Exception as e:
             logging.error(f"Error optimizando imagen: {str(e)}")
             return None
-
-    def descargar_imagen(self, url):
+    
+    def descargar_archivo(self, url, es_imagen=False):
         try:
-            if "drive.google.com" in url:
-                file_id = url.split('id=')[-1].split('&')[0]
-                url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
-            
+            url = self.procesar_google_drive_url(url)
             nombre_hash = hashlib.md5(url.encode()).hexdigest()
-            ruta_local = os.path.join(self.media_cache_dir, f"{nombre_hash}_temp.jpg")
-            
-            logging.info(f"⬇️ Descargando imagen: {file_id}")
-            with requests.get(url, stream=True, timeout=30) as r:
-                r.raise_for_status()
-                with open(ruta_local, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-            
-            return self.optimizar_imagen(ruta_local)
-        except Exception as e:
-            logging.error(f"Error descargando imagen: {str(e)}")
-            return None
-
-    def descargar_musica(self, url):
-        try:
-            if "drive.google.com" in url:
-                file_id = url.split('id=')[-1].split('&')[0]
-                url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
-            
-            nombre_hash = hashlib.md5(url.encode()).hexdigest()
-            ruta_local = os.path.join(self.media_cache_dir, f"{nombre_hash}.mp3")
+            extension = ".jpg" if es_imagen else ".mp3"
+            ruta_local = os.path.join(self.media_cache_dir, f"{nombre_hash}{extension}")
             
             if os.path.exists(ruta_local):
                 return ruta_local
 
-            logging.info(f"⬇️ Descargando música: {file_id}")
+            logging.info(f"⬇️ Descargando {'imagen' if es_imagen else 'música'}: {url}")
             with requests.get(url, stream=True, timeout=30) as r:
                 r.raise_for_status()
                 with open(ruta_local, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
             
-            return ruta_local
+            return self.optimizar_imagen(ruta_local) if es_imagen else ruta_local
         except Exception as e:
-            logging.error(f"Error descargando música: {str(e)}")
+            logging.error(f"Error descargando archivo: {str(e)}")
             return None
-
+    
     def cargar_medios(self):
         try:
             respuesta = requests.get(MEDIOS_URL, timeout=20)
             respuesta.raise_for_status()
             datos = respuesta.json()
             
+            # Validar estructura del JSON
+            if not all(key in datos for key in ["imagenes", "musica"]):
+                raise ValueError("Estructura JSON inválida")
+            
             # Procesar imágenes
-            datos['imagenes'] = []
-            for img in datos.get('imagenes', []):
-                local_path = self.descargar_imagen(img['url'])
-                if local_path:
-                    datos['imagenes'].append({
-                        "name": img['name'],
-                        "local_path": local_path
-                    })
+            imagenes_procesadas = []
+            for img in datos['imagenes']:
+                if 'url' in img and 'name' in img:
+                    local_path = self.descargar_archivo(img['url'], es_imagen=True)
+                    if local_path:
+                        imagenes_procesadas.append({
+                            "name": img['name'],
+                            "local_path": local_path
+                        })
+                        logging.info(f"✅ Imagen procesada: {img['name']}")
+                    else:
+                        logging.warning(f"⚠️ Imagen fallida: {img['name']}")
             
             # Procesar música
-            datos['musica'] = []
-            for m in datos.get('musica', []):
-                local_path = self.descargar_musica(m['url'])
-                if local_path:
-                    datos['musica'].append({
-                        "name": m['name'],
-                        "local_path": local_path
-                    })
+            musica_procesada = []
+            for m in datos['musica']:
+                if 'url' in m and 'name' in m:
+                    local_path = self.descargar_archivo(m['url'])
+                    if local_path:
+                        musica_procesada.append({
+                            "name": m['name'],
+                            "local_path": local_path
+                        })
+                        logging.info(f"✅ Música procesada: {m['name']}")
+                    else:
+                        logging.warning(f"⚠️ Música fallida: {m['name']}")
             
-            logging.info(f"✅ Medios listos: {len(datos['musica'])} canciones, {len(datos['imagenes'])} imágenes")
-            return datos
+            return {
+                "imagenes": imagenes_procesadas,
+                "musica": musica_procesada
+            }
         except Exception as e:
             logging.error(f"Error cargando medios: {str(e)}")
             return {"imagenes": [], "musica": []}
@@ -192,7 +197,7 @@ class YouTubeManager:
                 streamId=stream['id']
             ).execute()
 
-            # Subir miniatura optimizada
+            # Subir miniatura
             if imagen_path and os.path.exists(imagen_path):
                 self.youtube.thumbnails().set(
                     videoId=broadcast['id'],
@@ -223,6 +228,12 @@ class YouTubeManager:
 
 def generar_titulo(imagen):
     return f"🎧 {imagen['name']} • Música Continua • {datetime.utcnow().strftime('%H:%M UTC')}"
+
+def generar_playlist(canciones, cache_dir):
+    playlist_path = os.path.join(cache_dir, "playlist.txt")
+    with open(playlist_path, "w") as f:
+        f.write("\n".join([f"file '{m['local_path']}'" for m in canciones]))
+    return playlist_path
 
 def manejar_transmision(stream_data, youtube, imagen, playlist_path):
     try:
@@ -260,7 +271,7 @@ def manejar_transmision(stream_data, youtube, imagen, playlist_path):
         
         # Mantener por 8 horas
         tiempo_inicio = time.time()
-        while time.time() - tiempo_inicio < 28800:
+        while time.time() - tiempo_inicio < 28800:  # 8 horas
             if proceso.poll() is not None:
                 logging.warning("⚡ Reconectando FFmpeg...")
                 proceso.kill()
@@ -281,26 +292,29 @@ def ciclo_transmision():
     
     while True:
         try:
-            if not gestor.medios['imagenes'] or not gestor.medios['musica']:
-                logging.error("🚨 Contenido insuficiente - Reintentando en 5 minutos...")
+            if not gestor.medios['imagenes']:
+                logging.error("🚨 No hay imágenes disponibles - Reintentando en 5 minutos...")
                 time.sleep(300)
                 continue
                 
+            if not gestor.medios['musica']:
+                logging.error("🚨 No hay música disponible - Reintentando en 5 minutos...")
+                time.sleep(300)
+                continue
+
             # Seleccionar contenido
             imagen = random.choice(gestor.medios['imagenes'])
             canciones = random.sample(gestor.medios['musica'], len(gestor.medios['musica']))
             
             # Generar playlist
-            playlist_path = os.path.join(gestor.media_cache_dir, "playlist.txt")
-            with open(playlist_path, "w") as f:
-                f.write("\n".join([f"file '{m['local_path']}'" for m in canciones]))
+            playlist_path = generar_playlist(canciones, gestor.media_cache_dir)
             
             # Crear transmisión
             stream_info = youtube.crear_transmision(generar_titulo(imagen), imagen['local_path'])
             if not stream_info:
                 raise Exception("Error al crear stream")
             
-            # Manejar transmisión en hilo
+            # Manejar transmisión
             if manejar_transmision(stream_info, youtube, imagen, playlist_path):
                 logging.info("⏳ Esperando 5 minutos para nueva transmisión...")
                 time.sleep(300)
