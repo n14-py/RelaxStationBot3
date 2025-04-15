@@ -307,13 +307,12 @@ def manejar_transmision(stream_data, youtube, imagen, canciones):
         logging.info("🎬 Iniciando proceso de transmisión...")
         logging.info(f"📌 Detalles:\n- Imagen: {imagen['name']}\n- RTMP: {stream_data['rtmp']}\n- Programado: {stream_data['scheduled_start']}")
 
-        # Generar lista de reproducción dinámica
+        # Generar lista de reproducción dinámica con protocolo file://
         canciones_duplicadas = canciones * CONFIG['SONG_REPEAT_FACTOR']
         random.shuffle(canciones_duplicadas)
         
-        # Crear entrada concat para FFmpeg
         concat_entries = [
-            f"file '{c['local_path']}'\n"
+            f"file 'file://{os.path.abspath(c['local_path'])}'\n"  # ✅ Ruta absoluta con protocolo
             for c in canciones_duplicadas
         ]
         concat_input = "".join(concat_entries)
@@ -326,7 +325,7 @@ def manejar_transmision(stream_data, youtube, imagen, canciones):
             "-i", os.path.abspath(imagen['local_path']),
             "-f", "concat",
             "-safe", "0",
-            "-protocol_whitelist", "file,pipe",
+            "-protocol_whitelist", "file,pipe",  # ✅ Whitelist actualizada
             "-i", "pipe:0",
             "-vf", "scale=1280:720:force_original_aspect_ratio=increase",
             "-c:v", CONFIG['FFMPEG_PARAMS']['video_codec'],
@@ -346,16 +345,17 @@ def manejar_transmision(stream_data, youtube, imagen, canciones):
         proceso = subprocess.Popen(
             cmd, 
             stdin=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stderr=subprocess.PIPE,
+            universal_newlines=True  # ✅ Manejo correcto de encoding
         )
         
-        # Escribir lista de canciones en stdin
-        proceso.stdin.write(concat_input.encode())
+        # Escribir lista de canciones en stdin con formato correcto
+        proceso.stdin.write(concat_input)
         proceso.stdin.close()
 
         def log_ffmpeg_output():
             while True:
-                output = proceso.stderr.readline().decode()
+                output = proceso.stderr.readline()
                 if output == '' and proceso.poll() is not None:
                     break
                 if output:
@@ -366,6 +366,7 @@ def manejar_transmision(stream_data, youtube, imagen, canciones):
         max_checks = CONFIG['STREAM_ACTIVATION_TIMEOUT'] // CONFIG['STREAM_CHECK_INTERVAL']
         stream_activo = False
         
+        # Esperar activación del stream
         for i in range(max_checks):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
             if estado == 'active':
@@ -379,32 +380,38 @@ def manejar_transmision(stream_data, youtube, imagen, canciones):
         if not stream_activo:
             raise Exception(f"❌ Stream no se activó después de {CONFIG['STREAM_ACTIVATION_TIMEOUT']} segundos")
 
+        # Esperar hora programada
         tiempo_restante = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds()
         if tiempo_restante > 0:
             logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
             time.sleep(tiempo_restante)
         
+        # Iniciar transmisión LIVE
         if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
             logging.info("🎥 Transmisión LIVE iniciada")
         else:
             raise Exception("❌ No se pudo iniciar la transmisión LIVE")
 
+        # Mantener transmisión por 8 horas
         tiempo_inicio = datetime.utcnow()
         while (datetime.utcnow() - tiempo_inicio) < timedelta(hours=8):
             if proceso.poll() is not None:
                 logging.warning("⚡ Reconectando FFmpeg...")
                 proceso.kill()
-                # Regenerar lista si es necesario
+                
+                # Regenerar lista con nuevo orden aleatorio
                 canciones_duplicadas = canciones * CONFIG['SONG_REPEAT_FACTOR']
                 random.shuffle(canciones_duplicadas)
-                concat_input = "".join([f"file '{c['local_path']}'\n" for c in canciones_duplicadas])
+                concat_input = "".join([f"file 'file://{os.path.abspath(c['local_path'])}'\n" for c in canciones_duplicadas])
                 
-                proceso = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-                proceso.stdin.write(concat_input.encode())
+                proceso = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                proceso.stdin.write(concat_input)
                 proceso.stdin.close()
                 threading.Thread(target=log_ffmpeg_output, daemon=True).start()
+            
             time.sleep(15)
-        
+
+        # Finalizar transmisión
         proceso.kill()
         youtube.finalizar_transmision(stream_data['broadcast_id'])
         logging.info("🛑 Transmisión finalizada correctamente")
