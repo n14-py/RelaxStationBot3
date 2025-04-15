@@ -347,7 +347,7 @@ def manejar_transmision(stream_data, youtube, imagen, playlist_path):
             "-i", os.path.abspath(imagen['local_path']),
             "-f", "concat",
             "-safe", "0",
-            "-i", os.path.abspath(playlist_path)),
+            "-i", os.path.abspath(playlist_path),
             "-vf", "scale=1280:720:force_original_aspect_ratio=increase",
             "-c:v", CONFIG['FFMPEG_PARAMS']['video_codec'],
             "-preset", CONFIG['FFMPEG_PARAMS']['preset'],
