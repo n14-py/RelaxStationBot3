@@ -51,7 +51,8 @@ CONFIG = {
         "thumbnail_quality": 85,
         "buffersize": "6000k"
     },
-    "MAX_THUMBNAIL_SIZE": 2 * 1024 * 1024  # 2MB
+    "MAX_THUMBNAIL_SIZE": 2 * 1024 * 1024,  # 2MB
+    "SONG_REPEAT_FACTOR": 10  # Factor de repetición de canciones
 }
 
 class GestorContenido:
@@ -107,7 +108,6 @@ class GestorContenido:
             url = self.procesar_url_google_drive(url)
             nombre_hash = hashlib.md5(url.encode()).hexdigest()
             extension = ".jpg" if es_imagen else ".mp3"
-            # ✅ SOLUCIÓN: Usar rutas absolutas
             ruta_local = os.path.abspath(os.path.join(CONFIG['CACHE_DIR'], f"{nombre_hash}{extension}"))
             
             if os.path.exists(ruta_local):
@@ -296,48 +296,27 @@ class YouTubeManager:
             logging.error(f"Error finalizando transmisión: {str(e)}")
             return False
 
-# ✅ SOLUCIÓN: Playlist corregida (eliminar 'file:')
-def generar_playlist(canciones, cache_dir):
-    try:
-        logging.info("🎧 Generando playlist...")
-        playlist_path = os.path.abspath(os.path.join(cache_dir, "playlist.m3u"))
-        with open(playlist_path, "w") as f:
-            f.write("#EXTM3U\n")
-            for cancion in canciones:
-                # ✅ SOLUCIÓN: Línea corregida
-                f.write(f"#EXTINF:-1,{cancion['name']}\n{cancion['local_path']}\n")
-        
-        # Validación adicional
-        if not os.path.exists(playlist_path):
-            logging.error("❌ El archivo de playlist no se generó correctamente")
-            return None
-            
-        with open(playlist_path) as f:
-            if len(f.readlines()) < 2:
-                logging.error("❌ Playlist vacía o corrupta")
-                return None
-        
-        logging.info(f"✅ Playlist generada con {len(canciones)} canciones")
-        return playlist_path
-    except Exception as e:
-        logging.error(f"Error generando playlist: {str(e)}")
-        return None
-
 def generar_titulo(imagen):
     titulo = f"🎧 {imagen['name']} • Música Continua • {datetime.utcnow().strftime('%H:%M UTC')}"
     logging.info(f"📝 Título generado: {titulo}")
     return titulo
 
-def manejar_transmision(stream_data, youtube, imagen, playlist_path):
+def manejar_transmision(stream_data, youtube, imagen, canciones):
     proceso = None
     try:
-        # ✅ SOLUCIÓN: Validación de playlist
-        if not os.path.exists(playlist_path):
-            logging.error("❌ Playlist no encontrada")
-            return False
-            
         logging.info("🎬 Iniciando proceso de transmisión...")
         logging.info(f"📌 Detalles:\n- Imagen: {imagen['name']}\n- RTMP: {stream_data['rtmp']}\n- Programado: {stream_data['scheduled_start']}")
+
+        # Generar lista de reproducción dinámica
+        canciones_duplicadas = canciones * CONFIG['SONG_REPEAT_FACTOR']
+        random.shuffle(canciones_duplicadas)
+        
+        # Crear entrada concat para FFmpeg
+        concat_entries = [
+            f"file '{c['local_path']}'\n"
+            for c in canciones_duplicadas
+        ]
+        concat_input = "".join(concat_entries)
 
         cmd = [
             "ffmpeg",
@@ -347,7 +326,8 @@ def manejar_transmision(stream_data, youtube, imagen, playlist_path):
             "-i", os.path.abspath(imagen['local_path']),
             "-f", "concat",
             "-safe", "0",
-            "-i", os.path.abspath(playlist_path),
+            "-protocol_whitelist", "file,pipe",
+            "-i", "pipe:0",
             "-vf", "scale=1280:720:force_original_aspect_ratio=increase",
             "-c:v", CONFIG['FFMPEG_PARAMS']['video_codec'],
             "-preset", CONFIG['FFMPEG_PARAMS']['preset'],
@@ -363,8 +343,16 @@ def manejar_transmision(stream_data, youtube, imagen, playlist_path):
             stream_data['rtmp']
         ]
 
-        proceso = subprocess.Popen(cmd, stderr=subprocess.PIPE)
+        proceso = subprocess.Popen(
+            cmd, 
+            stdin=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
         
+        # Escribir lista de canciones en stdin
+        proceso.stdin.write(concat_input.encode())
+        proceso.stdin.close()
+
         def log_ffmpeg_output():
             while True:
                 output = proceso.stderr.readline().decode()
@@ -372,7 +360,7 @@ def manejar_transmision(stream_data, youtube, imagen, playlist_path):
                     break
                 if output:
                     logging.info(f"FFMPEG: {output.strip()}")
-        
+
         threading.Thread(target=log_ffmpeg_output, daemon=True).start()
 
         max_checks = CONFIG['STREAM_ACTIVATION_TIMEOUT'] // CONFIG['STREAM_CHECK_INTERVAL']
@@ -406,7 +394,14 @@ def manejar_transmision(stream_data, youtube, imagen, playlist_path):
             if proceso.poll() is not None:
                 logging.warning("⚡ Reconectando FFmpeg...")
                 proceso.kill()
-                proceso = subprocess.Popen(cmd, stderr=subprocess.PIPE)
+                # Regenerar lista si es necesario
+                canciones_duplicadas = canciones * CONFIG['SONG_REPEAT_FACTOR']
+                random.shuffle(canciones_duplicadas)
+                concat_input = "".join([f"file '{c['local_path']}'\n" for c in canciones_duplicadas])
+                
+                proceso = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+                proceso.stdin.write(concat_input.encode())
+                proceso.stdin.close()
                 threading.Thread(target=log_ffmpeg_output, daemon=True).start()
             time.sleep(15)
         
@@ -443,12 +438,9 @@ def ciclo_transmision():
                 imagen = random.choice(gestor.medios['imagenes'])
                 logging.info(f"🖼️ Imagen seleccionada: {imagen['name']}")
                 
-                canciones = random.sample(gestor.medios['musica'], len(gestor.medios['musica']))
+                canciones = gestor.medios['musica'].copy()
+                random.shuffle(canciones)
                 logging.info(f"🎵 Seleccionadas {len(canciones)} canciones")
-                
-                playlist_path = generar_playlist(canciones, CONFIG['CACHE_DIR'])
-                if not playlist_path:
-                    continue
                 
                 stream_info = youtube.crear_transmision(
                     generar_titulo(imagen),
@@ -460,13 +452,13 @@ def ciclo_transmision():
                 current_stream = {
                     "data": stream_info,
                     "imagen": imagen,
-                    "playlist": playlist_path,
+                    "canciones": canciones,
                     "start_time": datetime.utcnow()
                 }
 
                 threading.Thread(
                     target=manejar_transmision,
-                    args=(stream_info, youtube, imagen, playlist_path),
+                    args=(stream_info, youtube, imagen, canciones),
                     daemon=True
                 ).start()
 
