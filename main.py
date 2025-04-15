@@ -31,13 +31,6 @@ YOUTUBE_CREDS = {
     'refresh_token': os.getenv("YOUTUBE_REFRESH_TOKEN")
 }
 
-PALABRAS_CLAVE = {
-    'lofi': ['lofi', 'relax', 'chill'],
-    'musica': ['música', 'music', 'instrumental'],
-    'estudio': ['estudio', 'focus', 'concentración'],
-    'noche': ['noche', 'night', 'calma']
-}
-
 class GestorContenido:
     def __init__(self):
         self.media_cache_dir = os.path.abspath("./media_cache")
@@ -46,7 +39,7 @@ class GestorContenido:
         self.playlist_path = os.path.join(self.media_cache_dir, "playlist.txt")
 
     def generar_playlist(self):
-        canciones = [m for m in self.medios['musica'] if m['local_path']]
+        canciones = [m for m in self.medios['musica'] if m.get('local_path')]
         random.shuffle(canciones)
         
         with open(self.playlist_path, "w") as f:
@@ -56,14 +49,14 @@ class GestorContenido:
 
     def procesar_imagen(self, ruta_original):
         try:
-            ruta_procesada = os.path.join(self.media_cache_dir, "miniatura_optimizada.jpg")
+            nombre_hash = hashlib.md5(ruta_original.encode()).hexdigest()
+            ruta_procesada = os.path.join(self.media_cache_dir, f"{nombre_hash}_opt.jpg")
             
             subprocess.run([
-                "ffmpeg",
-                "-y",
+                "ffmpeg", "-y",
                 "-i", ruta_original,
-                "-vf", "scale=1280:720",
-                "-q:v", "3",
+                "-vf", "scale=1280:720:force_original_aspect_ratio=increase",
+                "-q:v", "2",
                 "-compression_level", "6",
                 ruta_procesada
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -75,6 +68,10 @@ class GestorContenido:
 
     def descargar_imagen(self, url):
         try:
+            if "drive.google.com" in url:
+                file_id = url.split('id=')[-1].split('&')[0]
+                url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
+            
             nombre_hash = hashlib.md5(url.encode()).hexdigest()
             ruta_local = os.path.join(self.media_cache_dir, f"{nombre_hash}.jpg")
             
@@ -123,16 +120,21 @@ class GestorContenido:
             respuesta.raise_for_status()
             datos = respuesta.json()
             
-            # Descargar música
-            for cancion in datos['musica']:
-                cancion['local_path'] = self.descargar_audio(cancion['url'])
+            # Procesar música
+            datos['musica'] = [{"name": m['name'], "url": m['url'], "local_path": self.descargar_audio(m['url'])} 
+                              for m in datos.get('musica', [])]
             
-            # Descargar y procesar imágenes
+            # Procesar imágenes
             datos['imagenes'] = []
             for img in datos.get('imagenes', []):
                 processed_path = self.descargar_imagen(img['url'])
                 if processed_path:
                     datos['imagenes'].append({"name": img['name'], "local_path": processed_path})
+                else:
+                    logging.warning(f"Imagen no disponible: {img['name']}")
+            
+            if not datos['imagenes']:
+                logging.error("❌ No hay imágenes válidas disponibles")
             
             logging.info("✅ Medios verificados y listos")
             return datos
@@ -202,7 +204,7 @@ class YouTubeManager:
                 streamId=stream['id']
             ).execute()
             
-            # Subir miniatura optimizada
+            # Subir miniatura
             if imagen_path and os.path.exists(imagen_path):
                 self.youtube.thumbnails().set(
                     videoId=broadcast['id'],
@@ -222,43 +224,10 @@ class YouTubeManager:
         except Exception as e:
             logging.error(f"Error creando transmisión: {str(e)}")
             return None
-    
-    def transicionar_estado(self, broadcast_id, estado):
-        try:
-            self.youtube.liveBroadcasts().transition(
-                broadcastStatus=estado,
-                id=broadcast_id,
-                part="id,status"
-            ).execute()
-            return True
-        except Exception as e:
-            logging.error(f"Error transicionando a {estado}: {str(e)}")
-            return False
-
-    def finalizar_transmision(self, broadcast_id):
-        try:
-            self.youtube.liveBroadcasts().transition(
-                broadcastStatus="complete",
-                id=broadcast_id,
-                part="id,status"
-            ).execute()
-            return True
-        except Exception as e:
-            logging.error(f"Error finalizando transmisión: {str(e)}")
-            return False
 
 def generar_titulo():
     temas = ['Lofi', 'Chill', 'Relax', 'Estudio', 'Noche']
-    estados = ['para Concentrarse', 'para Relajarse', 'Anti Estrés', 'para Dormir']
-    
-    plantillas = [
-        f"🎧 Música {random.choice(temas)} • {random.choice(estados)} • 24/7",
-        f"♫ Radio Continua • {random.choice(['Mix Aleatorio', 'Selección Premium', 'Variedad Musical'])}",
-        f"🎵 {random.choice(temas)} Vibes • {random.choice(estados)} • Sin Interrupciones",
-        f"✨ Música {random.choice(temas)} • Ambiente Perfecto • Live 24/7"
-    ]
-    
-    return random.choice(plantillas)
+    return f"🎧 Música {random.choice(temas)} • Live 24/7 • {datetime.now().strftime('%d/%m')}"
 
 def manejar_transmision(stream_data, youtube):
     try:
@@ -314,13 +283,13 @@ def ciclo_transmision():
     
     while True:
         try:
+            if not gestor.medios['imagenes']:
+                logging.error("🚨 No hay imágenes disponibles en el JSON")
+                time.sleep(60)
+                continue
+                
             titulo = generar_titulo()
-            imagenes_disponibles = [img for img in gestor.medios['imagenes'] if img['local_path']]
-            
-            if not imagenes_disponibles:
-                raise Exception("No hay imágenes disponibles")
-            
-            imagen = random.choice(imagenes_disponibles)
+            imagen = random.choice(gestor.medios['imagenes'])
             
             stream_info = youtube.crear_transmision(titulo, imagen['local_path'])
             if not stream_info:
