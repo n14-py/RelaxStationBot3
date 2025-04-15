@@ -54,13 +54,32 @@ class GestorContenido:
                 f.write(f"file '{cancion['local_path']}'\n")
         return self.playlist_path
 
+    def procesar_imagen(self, ruta_original):
+        try:
+            ruta_procesada = os.path.join(self.media_cache_dir, "miniatura_optimizada.jpg")
+            
+            subprocess.run([
+                "ffmpeg",
+                "-y",
+                "-i", ruta_original,
+                "-vf", "scale=1280:720",
+                "-q:v", "3",
+                "-compression_level", "6",
+                ruta_procesada
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            return ruta_procesada if os.path.exists(ruta_procesada) else None
+        except Exception as e:
+            logging.error(f"Error procesando imagen: {str(e)}")
+            return None
+
     def descargar_imagen(self, url):
         try:
             nombre_hash = hashlib.md5(url.encode()).hexdigest()
             ruta_local = os.path.join(self.media_cache_dir, f"{nombre_hash}.jpg")
             
             if os.path.exists(ruta_local):
-                return ruta_local
+                return self.procesar_imagen(ruta_local)
 
             logging.info(f"⬇️ Descargando imagen: {url}")
             with requests.get(url, stream=True, timeout=30) as r:
@@ -69,7 +88,7 @@ class GestorContenido:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
             
-            return ruta_local
+            return self.procesar_imagen(ruta_local)
         except Exception as e:
             logging.error(f"Error descargando imagen: {str(e)}")
             return None
@@ -108,9 +127,12 @@ class GestorContenido:
             for cancion in datos['musica']:
                 cancion['local_path'] = self.descargar_audio(cancion['url'])
             
-            # Descargar imágenes
-            datos['imagenes'] = [{"name": img['name'], "local_path": self.descargar_imagen(img['url'])} 
-                                for img in datos.get('imagenes', [])]
+            # Descargar y procesar imágenes
+            datos['imagenes'] = []
+            for img in datos.get('imagenes', []):
+                processed_path = self.descargar_imagen(img['url'])
+                if processed_path:
+                    datos['imagenes'].append({"name": img['name'], "local_path": processed_path})
             
             logging.info("✅ Medios verificados y listos")
             return datos
@@ -180,11 +202,12 @@ class YouTubeManager:
                 streamId=stream['id']
             ).execute()
             
-            # Subir miniatura
+            # Subir miniatura optimizada
             if imagen_path and os.path.exists(imagen_path):
                 self.youtube.thumbnails().set(
                     videoId=broadcast['id'],
-                    media_body=imagen_path
+                    media_body=imagen_path,
+                    media_mime_type='image/jpeg'
                 ).execute()
             
             rtmp_url = stream['cdn']['ingestionInfo']['ingestionAddress']
@@ -292,7 +315,12 @@ def ciclo_transmision():
     while True:
         try:
             titulo = generar_titulo()
-            imagen = random.choice([img for img in gestor.medios['imagenes'] if img['local_path']])
+            imagenes_disponibles = [img for img in gestor.medios['imagenes'] if img['local_path']]
+            
+            if not imagenes_disponibles:
+                raise Exception("No hay imágenes disponibles")
+            
+            imagen = random.choice(imagenes_disponibles)
             
             stream_info = youtube.crear_transmision(titulo, imagen['local_path'])
             if not stream_info:
