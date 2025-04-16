@@ -31,14 +31,6 @@ YOUTUBE_CREDS = {
     'refresh_token': os.getenv("YOUTUBE_REFRESH_TOKEN")
 }
 
-PALABRAS_CLAVE = {
-    'lluvia': ['lluvia', 'rain', 'storm'],
-    'fuego': ['fuego', 'fire', 'chimenea'],
-    'bosque': ['bosque', 'jungla', 'forest'],
-    'rio': ['rio', 'river', 'cascada'],
-    'noche': ['noche', 'night', 'luna']
-}
-
 class GestorContenido:
     def __init__(self):
         self.media_cache_dir = os.path.abspath("./media_cache")
@@ -185,6 +177,7 @@ class YouTubeManager:
                 media_mime_type='image/jpeg'
             ).execute()
 
+            logging.info(f"📡 Transmisión creada: {titulo}")
             return {
                 "rtmp": f"{stream['cdn']['ingestionInfo']['ingestionAddress']}/{stream['cdn']['ingestionInfo']['streamName']}",
                 "scheduled_start": scheduled_start,
@@ -213,18 +206,28 @@ class YouTubeManager:
                 id=broadcast_id,
                 part="id,status"
             ).execute()
+            logging.info(f"🔄 Transición a {estado} exitosa")
             return True
         except Exception as e:
             logging.error(f"Error transicionando a {estado}: {str(e)}")
             return False
 
+    def obtener_estado_broadcast(self, broadcast_id):
+        try:
+            response = self.youtube.liveBroadcasts().list(
+                part="status",
+                id=broadcast_id
+            ).execute()
+            return response['items'][0]['status']['lifeCycleStatus'] if response.get('items') else None
+        except Exception as e:
+            logging.error(f"Error obteniendo estado broadcast: {str(e)}")
+            return None
+
     def finalizar_transmision(self, broadcast_id):
         try:
-            self.youtube.liveBroadcasts().transition(
-                broadcastStatus="complete",
-                id=broadcast_id,
-                part="id,status"
-            ).execute()
+            estado_actual = self.obtener_estado_broadcast(broadcast_id)
+            if estado_actual in ['live', 'testing']:
+                self.transicionar_estado(broadcast_id, 'complete')
             return True
         except Exception as e:
             logging.error(f"Error finalizando transmisión: {str(e)}")
@@ -248,7 +251,14 @@ def manejar_transmision(stream_data, youtube):
             os.remove(fifo_path)
         os.mkfifo(fifo_path)
         
-        # Comando FFmpeg optimizado
+        # Iniciar FFmpeg 4 minutos antes
+        tiempo_inicio_ffmpeg = stream_data['scheduled_start'] - timedelta(minutes=4)
+        espera_ffmpeg = (tiempo_inicio_ffmpeg - datetime.utcnow()).total_seconds()
+        
+        if espera_ffmpeg > 0:
+            logging.info(f"⏳ Esperando {espera_ffmpeg:.1f}s para iniciar FFmpeg...")
+            time.sleep(espera_ffmpeg)
+        
         ffmpeg_cmd = [
             "ffmpeg",
             "-loglevel", "error",
@@ -274,20 +284,21 @@ def manejar_transmision(stream_data, youtube):
         proceso = subprocess.Popen(ffmpeg_cmd)
         logging.info("🟢 FFmpeg iniciado - Conectando con YouTube...")
         
-        # Esperar activación del stream
-        for _ in range(15):
+        # Esperar activación del stream (hasta 5 minutos)
+        for _ in range(30):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
             if estado == 'active':
                 logging.info("✅ Stream activo - Transicionando a testing")
                 youtube.transicionar_estado(stream_data['broadcast_id'], 'testing')
                 break
-            time.sleep(2)
+            time.sleep(10)
         else:
-            raise Exception("Timeout: Stream no se activó")
+            raise Exception("Timeout: Stream no se activó después de 5 minutos")
         
-        # Esperar inicio programado
+        # Esperar hasta el horario programado
         tiempo_restante = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds()
         if tiempo_restante > 0:
+            logging.info(f"⏳ Esperando {tiempo_restante:.1f}s para LIVE...")
             time.sleep(tiempo_restante)
         
         youtube.transicionar_estado(stream_data['broadcast_id'], 'live')
@@ -303,14 +314,14 @@ def manejar_transmision(stream_data, youtube):
                 with open(fifo_path, 'wb') as fifo:
                     fifo.write(f.read())
             
-            time.sleep(1)  # Pausa entre canciones
+            time.sleep(1)
         
         proceso.terminate()
         youtube.finalizar_transmision(stream_data['broadcast_id'])
         logging.info("🛑 Transmisión finalizada correctamente")
 
     except Exception as e:
-        logging.error(f"Error en transmisión: {str(e)}")
+        logging.error(f"🚨 Error en transmisión: {str(e)}")
         youtube.finalizar_transmision(stream_data['broadcast_id'])
 
 def ciclo_transmision():
@@ -322,10 +333,8 @@ def ciclo_transmision():
             imagen = random.choice([i for i in gestor.medios['imagenes'] if i['local_path']])
             logging.info(f"🖼️ Nueva transmisión con: {imagen['name']}")
             
-            stream_info = youtube.crear_transmision(
-                generar_titulo(imagen),
-                imagen['local_path']
-            )
+            titulo = generar_titulo(imagen)
+            stream_info = youtube.crear_transmision(titulo, imagen['local_path'])
             
             if not stream_info:
                 time.sleep(60)
@@ -343,13 +352,12 @@ def ciclo_transmision():
             hilo = threading.Thread(target=manejar_transmision, args=(stream_data, youtube))
             hilo.start()
             
-            # Esperar ciclo completo + margen
-            tiempo_espera = 28800 + 300  # 8h + 5m
+            tiempo_espera = (stream_info['scheduled_start'] - datetime.utcnow()).total_seconds() + 28800 + 300
             logging.info(f"⏳ Próxima transmisión en {tiempo_espera//3600}h {(tiempo_espera%3600)//60}m")
             time.sleep(tiempo_espera)
             
         except Exception as e:
-            logging.error(f"Error en ciclo: {str(e)}")
+            logging.error(f"🚨 Error en ciclo: {str(e)}")
             time.sleep(30)
 
 @app.route('/health')
