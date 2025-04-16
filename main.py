@@ -141,7 +141,7 @@ class YouTubeManager:
                         "enableAutoStart": True,
                         "enableAutoStop": True,
                         "enableArchive": True
-                        "lifeCycleStatus": "created"
+                        
                     }
                 }
             ).execute()
