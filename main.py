@@ -31,6 +31,14 @@ YOUTUBE_CREDS = {
     'refresh_token': os.getenv("YOUTUBE_REFRESH_TOKEN")
 }
 
+PALABRAS_CLAVE = {
+    'lluvia': ['lluvia', 'rain', 'storm'],
+    'fuego': ['fuego', 'fire', 'chimenea'],
+    'bosque': ['bosque', 'jungla', 'forest'],
+    'rio': ['rio', 'river', 'cascada'],
+    'noche': ['noche', 'night', 'luna']
+}
+
 class GestorContenido:
     def __init__(self):
         self.media_cache_dir = os.path.abspath("./media_cache")
@@ -39,6 +47,10 @@ class GestorContenido:
     
     def procesar_imagen(self, url):
         try:
+            if "drive.google.com" in url:
+                file_id = url.split('id=')[-1].split('&')[0]
+                url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
+            
             nombre_hash = hashlib.md5(url.encode()).hexdigest()
             ruta_local = os.path.join(self.media_cache_dir, f"{nombre_hash}.jpg")
             
@@ -125,7 +137,7 @@ class YouTubeManager:
     
     def crear_transmision(self, titulo, imagen_path):
         try:
-            scheduled_start = datetime.utcnow() + timedelta(seconds=45)
+            scheduled_start = datetime.utcnow() + timedelta(minutes=5)
             
             broadcast = self.youtube.liveBroadcasts().insert(
                 part="snippet,status",
@@ -140,8 +152,8 @@ class YouTubeManager:
                         "selfDeclaredMadeForKids": False,
                         "enableAutoStart": True,
                         "enableAutoStop": True,
-                        "enableArchive": True
-                        
+                        "enableArchive": True,
+                        "lifeCycleStatus": "created"
                     }
                 }
             ).execute()
@@ -230,13 +242,7 @@ def generar_titulo(imagen):
 
 def manejar_transmision(stream_data, youtube):
     try:
-        # Sincronización precisa
-        tiempo_espera = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds() - 15
-        if tiempo_espera > 0:
-            logging.info(f"⏳ Esperando {tiempo_espera:.1f}s para sincronización...")
-            time.sleep(tiempo_espera)
-        
-        # Configurar FIFO mejorado
+        # Configurar FIFO
         fifo_path = os.path.join(stream_data['gestor'].media_cache_dir, "audio_fifo")
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
@@ -266,9 +272,9 @@ def manejar_transmision(stream_data, youtube):
         ]
         
         proceso = subprocess.Popen(ffmpeg_cmd)
-        logging.info("🟢 FFmpeg iniciado - Estableciendo conexión...")
+        logging.info("🟢 FFmpeg iniciado - Conectando con YouTube...")
         
-        # Verificar estado del stream
+        # Esperar activación del stream
         for _ in range(15):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
             if estado == 'active':
@@ -279,7 +285,7 @@ def manejar_transmision(stream_data, youtube):
         else:
             raise Exception("Timeout: Stream no se activó")
         
-        # Esperar inicio exacto
+        # Esperar inicio programado
         tiempo_restante = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds()
         if tiempo_restante > 0:
             time.sleep(tiempo_restante)
@@ -287,7 +293,7 @@ def manejar_transmision(stream_data, youtube):
         youtube.transicionar_estado(stream_data['broadcast_id'], 'live')
         logging.info("🎥 Transmisión LIVE iniciada")
         
-        # Reproducción continua mejorada
+        # Reproducción continua
         start_time = datetime.utcnow()
         while (datetime.utcnow() - start_time) < timedelta(hours=8):
             musica = random.choice([m for m in stream_data['gestor'].medios['musica'] if m['local_path']])
@@ -297,7 +303,7 @@ def manejar_transmision(stream_data, youtube):
                 with open(fifo_path, 'wb') as fifo:
                     fifo.write(f.read())
             
-            time.sleep(1)  # Breve pausa entre canciones
+            time.sleep(1)  # Pausa entre canciones
         
         proceso.terminate()
         youtube.finalizar_transmision(stream_data['broadcast_id'])
