@@ -5,6 +5,7 @@ import logging
 import time
 import requests
 import hashlib
+import socket
 from datetime import datetime, timedelta
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
@@ -29,6 +30,13 @@ YOUTUBE_CREDS = {
     'client_id': os.getenv("YOUTUBE_CLIENT_ID"),
     'client_secret': os.getenv("YOUTUBE_CLIENT_SECRET"),
     'refresh_token': os.getenv("YOUTUBE_REFRESH_TOKEN")
+}
+
+PALABRAS_CLAVE = {
+    'lofi': ['lofi', 'chill', 'study'],
+    'jazz': ['jazz', 'blues', 'smooth'],
+    'clasica': ['clasica', 'classic', 'piano'],
+    'ambient': ['ambient', 'electronic', 'synth']
 }
 
 class GestorContenido:
@@ -129,33 +137,39 @@ class YouTubeManager:
     
     def crear_transmision(self, titulo, imagen_path):
         try:
-            scheduled_start = datetime.utcnow() + timedelta(minutes=5)
+            scheduled_start = datetime.utcnow() + timedelta(minutes=3)
+            
+            broadcast_body = {
+                "snippet": {
+                    "title": titulo,
+                    "description": "🎵 Música Continua 24/7 • Mezcla Profesional\n🔔 Activa las notificaciones\n👍 Déjanos tu like",
+                    "scheduledStartTime": scheduled_start.isoformat() + "Z"
+                },
+                "status": {
+                    "privacyStatus": "public",
+                    "selfDeclaredMadeForKids": False,
+                    "enableAutoStart": True,
+                    "enableAutoStop": True,
+                    "enableArchive": True,
+                    "lifeCycleStatus": "created",
+                    "latencyPreference": "ultraLow"
+                },
+                "contentDetails": {
+                    "enableLowLatency": True,
+                    "enableAutoStart": True,
+                    "enableAutoStop": True
+                }
+            }
             
             broadcast = self.youtube.liveBroadcasts().insert(
-                part="snippet,status",
-                body={
-                    "snippet": {
-                        "title": titulo,
-                        "description": "🎵 Música continua 24/7 • Mezcla profesional\n🔔 Activa las notificaciones\n👍 Déjanos tu like",
-                        "scheduledStartTime": scheduled_start.isoformat() + "Z"
-                    },
-                    "status": {
-                        "privacyStatus": "public",
-                        "selfDeclaredMadeForKids": False,
-                        "enableAutoStart": True,
-                        "enableAutoStop": True,
-                        "enableArchive": True,
-                        "lifeCycleStatus": "created"
-                    }
-                }
-            ).execute()
-
+                part="snippet,status,contentDetails",
+                body=broadcast_body
+            ).execute(timeout=30)
+            
             stream = self.youtube.liveStreams().insert(
                 part="snippet,cdn",
                 body={
-                    "snippet": {
-                        "title": "Stream de música continua"
-                    },
+                    "snippet": {"title": "Radio Continua 24/7"},
                     "cdn": {
                         "format": "1080p",
                         "ingestionType": "rtmp",
@@ -164,20 +178,18 @@ class YouTubeManager:
                     }
                 }
             ).execute()
-
+            
             self.youtube.liveBroadcasts().bind(
                 part="id,contentDetails",
                 id=broadcast['id'],
                 streamId=stream['id']
             ).execute()
-
+            
             self.youtube.thumbnails().set(
                 videoId=broadcast['id'],
-                media_body=imagen_path,
-                media_mime_type='image/jpeg'
+                media_body=imagen_path
             ).execute()
-
-            logging.info(f"📡 Transmisión creada: {titulo}")
+            
             return {
                 "rtmp": f"{stream['cdn']['ingestionInfo']['ingestionAddress']}/{stream['cdn']['ingestionInfo']['streamName']}",
                 "scheduled_start": scheduled_start,
@@ -206,62 +218,57 @@ class YouTubeManager:
                 id=broadcast_id,
                 part="id,status"
             ).execute()
-            logging.info(f"🔄 Transición a {estado} exitosa")
             return True
         except Exception as e:
             logging.error(f"Error transicionando a {estado}: {str(e)}")
             return False
-
-    def obtener_estado_broadcast(self, broadcast_id):
-        try:
-            response = self.youtube.liveBroadcasts().list(
-                part="status",
-                id=broadcast_id
-            ).execute()
-            return response['items'][0]['status']['lifeCycleStatus'] if response.get('items') else None
-        except Exception as e:
-            logging.error(f"Error obteniendo estado broadcast: {str(e)}")
-            return None
-
+    
     def finalizar_transmision(self, broadcast_id):
         try:
-            estado_actual = self.obtener_estado_broadcast(broadcast_id)
-            if estado_actual in ['live', 'testing']:
-                self.transicionar_estado(broadcast_id, 'complete')
+            self.youtube.liveBroadcasts().transition(
+                broadcastStatus="complete",
+                id=broadcast_id,
+                part="id,status"
+            ).execute()
             return True
         except Exception as e:
             logging.error(f"Error finalizando transmisión: {str(e)}")
             return False
 
+def verificar_conexion_rtmp(rtmp_url):
+    try:
+        parsed = urlparse(rtmp_url)
+        host = parsed.hostname
+        port = parsed.port or 1935
+        
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(10)
+            s.connect((host, port))
+            logging.info("✅ Conexión RTMP disponible")
+            return True
+    except Exception as e:
+        logging.error(f"🚨 Fallo conexión RTMP: {str(e)}")
+        return False
+
 def generar_titulo(imagen):
-    temas = {
-        'lofi': ['Lofi Vibes', 'Study Beats', 'Chillhop'],
-        'nature': ['Nature Sounds', 'Forest Relax', 'Mountain Calm'],
-        'jazz': ['Jazz Lounge', 'Smooth Jazz', 'Night Jazz']
-    }
     nombre = imagen['name'].lower()
-    tema = next((k for k, v in temas.items() if any(x in nombre for x in v)), 'lofi')
-    return f"{random.choice(temas[tema])} • Música Continua 24/7 🎧"
+    tema = next((k for k, v in PALABRAS_CLAVE.items() if any(x in nombre for x in v)), 'lofi')
+    return f"{random.choice(['🎧', '🎶', '🎵'])} {random.choice(['Música Continua', 'Mix 24/7', 'Stream Sin Parar'])} • {tema.capitalize()}"
 
 def manejar_transmision(stream_data, youtube):
     try:
-        # Configurar FIFO
+        if not verificar_conexion_rtmp(stream_data['rtmp']):
+            raise Exception("Fallo en conexión RTMP")
+        
         fifo_path = os.path.join(stream_data['gestor'].media_cache_dir, "audio_fifo")
         if os.path.exists(fifo_path):
             os.remove(fifo_path)
         os.mkfifo(fifo_path)
         
-        # Iniciar FFmpeg 4 minutos antes
-        tiempo_inicio_ffmpeg = stream_data['scheduled_start'] - timedelta(minutes=4)
-        espera_ffmpeg = (tiempo_inicio_ffmpeg - datetime.utcnow()).total_seconds()
-        
-        if espera_ffmpeg > 0:
-            logging.info(f"⏳ Esperando {espera_ffmpeg:.1f}s para iniciar FFmpeg...")
-            time.sleep(espera_ffmpeg)
-        
         ffmpeg_cmd = [
             "ffmpeg",
-            "-loglevel", "error",
+            "-loglevel", "verbose",
+            "-rw_timeout", "5000000",
             "-re",
             "-loop", "1",
             "-i", stream_data['imagen']['local_path'],
@@ -270,21 +277,24 @@ def manejar_transmision(stream_data, youtube):
             "-vf", "format=yuv420p,scale=1280:720",
             "-c:v", "libx264",
             "-preset", "ultrafast",
-            "-tune", "stillimage",
-            "-b:v", "3000k",
-            "-maxrate", "3000k",
-            "-bufsize", "6000k",
-            "-g", "60",
+            "-tune", "zerolatency",
+            "-x264-params", "keyint=30:min-keyint=30",
+            "-b:v", "2500k",
+            "-maxrate", "2500k",
+            "-bufsize", "5000k",
+            "-g", "30",
             "-c:a", "aac",
-            "-b:a", "192k",
+            "-b:a", "128k",
             "-f", "flv",
+            "-flush_packets", "1",
+            "-rtmp_buffer", "5000",
             stream_data['rtmp']
         ]
         
         proceso = subprocess.Popen(ffmpeg_cmd)
         logging.info("🟢 FFmpeg iniciado - Conectando con YouTube...")
         
-        # Esperar activación del stream (hasta 5 minutos)
+        # Esperar activación del stream
         for _ in range(30):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
             if estado == 'active':
@@ -293,12 +303,11 @@ def manejar_transmision(stream_data, youtube):
                 break
             time.sleep(10)
         else:
-            raise Exception("Timeout: Stream no se activó después de 5 minutos")
+            raise Exception("Timeout: Stream no activo después de 5 minutos")
         
-        # Esperar hasta el horario programado
+        # Esperar inicio programado
         tiempo_restante = (stream_data['scheduled_start'] - datetime.utcnow()).total_seconds()
         if tiempo_restante > 0:
-            logging.info(f"⏳ Esperando {tiempo_restante:.1f}s para LIVE...")
             time.sleep(tiempo_restante)
         
         youtube.transicionar_estado(stream_data['broadcast_id'], 'live')
@@ -349,8 +358,7 @@ def ciclo_transmision():
                 "gestor": gestor
             }
             
-            hilo = threading.Thread(target=manejar_transmision, args=(stream_data, youtube))
-            hilo.start()
+            threading.Thread(target=manejar_transmision, args=(stream_data, youtube)).start()
             
             tiempo_espera = (stream_info['scheduled_start'] - datetime.utcnow()).total_seconds() + 28800 + 300
             logging.info(f"⏳ Próxima transmisión en {tiempo_espera//3600}h {(tiempo_espera%3600)//60}m")
