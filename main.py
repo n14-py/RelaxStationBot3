@@ -14,6 +14,7 @@ from flask import Flask
 from waitress import serve
 from urllib.parse import urlparse
 import threading
+from googleapiclient.http import HttpRequest
 
 app = Flask(__name__)
 
@@ -124,16 +125,20 @@ class YouTubeManager:
         self.youtube = self.autenticar()
     
     def autenticar(self):
-        creds = Credentials(
-            token=None,
-            refresh_token=YOUTUBE_CREDS['refresh_token'],
-            client_id=YOUTUBE_CREDS['client_id'],
-            client_secret=YOUTUBE_CREDS['client_secret'],
-            token_uri="https://oauth2.googleapis.com/token",
-            scopes=['https://www.googleapis.com/auth/youtube']
-        )
-        creds.refresh(Request())
-        return build('youtube', 'v3', credentials=creds, cache_discovery=False)
+        try:
+            creds = Credentials(
+                token=None,
+                refresh_token=YOUTUBE_CREDS['refresh_token'],
+                client_id=YOUTUBE_CREDS['client_id'],
+                client_secret=YOUTUBE_CREDS['client_secret'],
+                token_uri="https://oauth2.googleapis.com/token",
+                scopes=['https://www.googleapis.com/auth/youtube']
+            )
+            creds.refresh(Request())
+            return build('youtube', 'v3', credentials=creds, cache_discovery=False)
+        except Exception as e:
+            logging.error(f"Error autenticación: {str(e)}")
+            return None
     
     def crear_transmision(self, titulo, imagen_path):
         try:
@@ -161,10 +166,11 @@ class YouTubeManager:
                 }
             }
             
+            # Crear broadcast sin timeout explícito
             broadcast = self.youtube.liveBroadcasts().insert(
                 part="snippet,status,contentDetails",
                 body=broadcast_body
-            ).execute(timeout=30)
+            ).execute()
             
             stream = self.youtube.liveStreams().insert(
                 part="snippet,cdn",
