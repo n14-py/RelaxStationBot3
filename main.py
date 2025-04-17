@@ -197,7 +197,7 @@ class YouTubeManager:
             return False
 
 def generar_titulo(imagen):
-    return f"Lofi desde Relax Station 🌙 – Música Chill para Mente y Alma
+    return f"Lofi desde Relax Station 🌙 – Música Chill para Mente y Alma"
 
 def manejar_transmision(gestor, youtube, imagen):
     ffmpeg_process = None
