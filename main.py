@@ -124,7 +124,7 @@ class GestorContenido:
             # Descargar videos primero
             logging.info("🎥 Iniciando descarga de videos...")
             for i, video in enumerate(datos['videos'], 1):
-                logging.info(f"⬇️ Descargando video {i}/{len(datos['videos']}: {video['name']}")
+                logging.info(f"⬇️ Descargando video {i}/{len(datos['videos'])}: {video['name']}")
                 video['local_path'] = self.descargar_video(video['url'])
                 if not video['local_path']:
                     raise Exception(f"Fallo al descargar video: {video['name']}")
@@ -132,7 +132,7 @@ class GestorContenido:
             # Luego descargar música
             logging.info("🎵 Iniciando descarga de música...")
             for j, cancion in enumerate(datos['musica'], 1):
-                logging.info(f"⬇️ Descargando canción {j}/{len(datos['musica']}: {cancion['name']}")
+                logging.info(f"⬇️ Descargando canción {j}/{len(datos['musica'])}: {cancion['name']}")
                 cancion['local_path'] = self.descargar_audio(cancion['url'])
                 if not cancion['local_path']:
                     raise Exception(f"Fallo al descargar canción: {cancion['name']}")
@@ -554,3 +554,4 @@ if __name__ == "__main__":
     
     # Iniciar servidor web
     serve(app, host='0.0.0.0', port=10000)
+    
