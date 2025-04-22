@@ -113,6 +113,7 @@ class GestorContenido:
 
     def cargar_medios(self):
         try:
+            logging.info("📡 Obteniendo lista de medios desde GitHub...")
             respuesta = requests.get(MEDIOS_URL, timeout=20)
             respuesta.raise_for_status()
             datos = respuesta.json()
@@ -120,47 +121,63 @@ class GestorContenido:
             if not all(key in datos for key in ["videos", "musica"]):
                 raise ValueError("Estructura JSON inválida")
             
-            # Descargar videos
-            for video in datos['videos']:
+            # Descargar videos primero
+            logging.info("🎥 Iniciando descarga de videos...")
+            for i, video in enumerate(datos['videos'], 1):
+                logging.info(f"⬇️ Descargando video {i}/{len(datos['videos']}: {video['name']}")
                 video['local_path'] = self.descargar_video(video['url'])
+                if not video['local_path']:
+                    raise Exception(f"Fallo al descargar video: {video['name']}")
             
-            # Descargar música
-            for cancion in datos['musica']:
+            # Luego descargar música
+            logging.info("🎵 Iniciando descarga de música...")
+            for j, cancion in enumerate(datos['musica'], 1):
+                logging.info(f"⬇️ Descargando canción {j}/{len(datos['musica']}: {cancion['name']}")
                 cancion['local_path'] = self.descargar_audio(cancion['url'])
+                if not cancion['local_path']:
+                    raise Exception(f"Fallo al descargar canción: {cancion['name']}")
             
-            logging.info("✅ Medios verificados y listos")
+            logging.info("✅ Todos los medios descargados y verificados")
             return datos
         except Exception as e:
-            logging.error(f"Error cargando medios: {str(e)}")
+            logging.error(f"❌ Error cargando medios: {str(e)}")
             return {"videos": [], "musica": []}
 
 class YouTubeManager:
     def __init__(self):
-        self.youtube = self.autenticar()
+        self.youtube = None
+        self.autenticar()
     
     def autenticar(self):
-        try:
-            creds = Credentials(
-                token="",
-                refresh_token=YOUTUBE_CREDS['refresh_token'],
-                client_id=YOUTUBE_CREDS['client_id'],
-                client_secret=YOUTUBE_CREDS['client_secret'],
-                token_uri="https://oauth2.googleapis.com/token",
-                scopes=['https://www.googleapis.com/auth/youtube']
-            )
-            creds.refresh(Request())
-            return build('youtube', 'v3', credentials=creds)
-        except Exception as e:
-            logging.error(f"Error autenticación YouTube: {str(e)}")
-            return None
+        max_intentos = 3
+        for intento in range(max_intentos):
+            try:
+                creds = Credentials(
+                    token=None,
+                    refresh_token=YOUTUBE_CREDS['refresh_token'],
+                    client_id=YOUTUBE_CREDS['client_id'],
+                    client_secret=YOUTUBE_CREDS['client_secret'],
+                    token_uri="https://oauth2.googleapis.com/token",
+                    scopes=['https://www.googleapis.com/auth/youtube']
+                )
+                creds.refresh(Request())
+                self.youtube = build('youtube', 'v3', credentials=creds)
+                logging.info("🔑 Autenticación con YouTube exitosa")
+                return
+            except Exception as e:
+                logging.error(f"🔴 Error autenticación YouTube (intento {intento+1}/{max_intentos}): {str(e)}")
+                if intento == max_intentos - 1:
+                    logging.error("❌ No se pudo autenticar con YouTube después de varios intentos")
+                    self.youtube = None
+                time.sleep(5)
     
-    def generar_miniatura(self, video_url):
+    def generar_miniatura(self, video_path):
         try:
             output_path = "/tmp/miniatura_nueva.jpg"
             subprocess.run([
                 "ffmpeg",
                 "-y", "-ss", "00:00:10",
-                "-i", video_url,
+                "-i", video_path,
                 "-vframes", "1",
                 "-q:v", "2",
                 "-vf", "scale=1280:720,setsar=1",
@@ -172,6 +189,10 @@ class YouTubeManager:
             return None
     
     def crear_transmision(self, titulo, video_path):
+        if not self.youtube:
+            logging.error("No hay conexión con YouTube")
+            return None
+            
         try:
             scheduled_start = datetime.utcnow() + timedelta(minutes=5)
             
@@ -179,18 +200,17 @@ class YouTubeManager:
                 part="snippet,status",
                 body={
                   "snippet": {
-                  "title": titulo,
-                  "description": "Disfruta de nuestra selección musical las 24 horas del día. Música relajante, instrumental y ambiental para trabajar, estudiar, meditar o simplemente disfrutar. 🎵🎶\n\n📲 Síguenos: \n\nhttp://instagram.com/@desderelaxstation \n\nFacebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/ \n\nTikTok: https://www.tiktok.com/@desderelaxstation\n\n🚫IGNORAR TAGS DesdeRelaxStation, música relajante, música instrumental, música para trabajar, música para estudiar, música para dormir, música ambiental, música chill, música suave, música tranquila, música de fondo, música para concentrarse, música para meditar, música para yoga, música clásica, música de piano, música de guitarra, música sin copyright, música libre de derechos, música para streaming, música para videos, música positiva, música zen, música para aliviar el estrés, música antiestrés, música para ansiedad, música calmante, música para relajarse, música para leer, música para creatividad, música para productividad, música para concentración, música para oficina, música para café, música para lluvia, música para noche, música para día, música para mañana, música para tarde, música para atardecer, música para amanecer, música para estudio, música para escritura, música para pintar, música para dibujar, música para diseñar, música para programar, música para trabajar remoto, música para home office, música para teletrabajo, música para mindfulness, música para bienestar, música para salud mental, música para terapia, música para masajes, música para spa, música para descansar, música para soñar, música para viajar, música para volar, música para pensar, música para reflexionar, música para inspirarse, música para motivación, música para energía positiva, música para armonía, música para equilibrio, música para paz interior, música para alma, música para corazón, música para espíritu, música para vibraciones positivas, música para frecuencia, música para ondas cerebrales, música para alpha, música para theta, música para delta, música para gamma, música para beta, música para meditación profunda, música para sanación, música para chakras, música para reiki, música para energía, música para vibración, música para frecuencia 432hz, música para frecuencia 528hz, música para solfeggio, música para cuencos tibetanos, música para cuencos de cristal, música para naturaleza, música para bosque, música para montaña, música para playa, música para océano, música para río, música para lago, música para selva, música para desierto, música para espacio, música para estrellas, música para luna, música para sol, música para planetas, música para universo, música para cosmos, música para galaxias, música para nebulosas, música para aurora boreal, música para atardeceres, música para amaneceres, música para estaciones, música para primavera, música para verano, música para otoño, música para invierno, música para días lluviosos, música para días soleados, música para días nublados, música para días ventosos, música para días nevados, música para días fríos, música para días cálidos, música para días templados, música para todas las ocasiones, música para todos los estados de ánimo, música para todos los momentos, relax music, instrumental music, study music, work music, sleep music, meditation music, yoga music, background music, focus music, concentration music, chill music, soft music, calm music, peaceful music, ambient music, atmospheric music, classical music, piano music, guitar music, no copyright music, royalty free music, streaming music, video music, positive music, zen music, stress relief music, anti-stress music, anxiety relief music, calming music, relaxation music, reading music, creativity music, productivity music, office music, coffee music, rain music, night music, day music, morning music, afternoon music, sunset music, sunrise music, study music, writing music, painting music, drawing music, design music, programming music, remote work music, home office music, telework music, mindfulness music, wellness music, mental health music, therapy music, massage music, spa music, rest music, dream music, travel music, fly music, think music, reflection music, inspiration music, motivation music, positive energy music, harmony music, balance music, inner peace music, soul music, heart music, spirit music, positive vibrations music, frequency music, brain waves music, alpha music, theta music, delta music, gamma music, beta music, deep meditation music, healing music, chakras music, reiki music, energy music, vibration music, 432hz music, 528hz music, solfeggio music, tibetan bowls music, crystal bowls music, nature music, forest music, mountain music, beach music, ocean music, river music, lake music, jungle music, desert music, space music, stars music, moon music, sun music, planets music, universe music, cosmos music, galaxies music, nebulas music, aurora music, sunsets music, sunrises music, seasons music, spring music, summer music, autumn music, winter music, rainy days music, sunny days music, cloudy days music, windy days music, snowy days music, cold days music, warm days music, mild days music, music for all occasions, music for all moods, music for all moments.",
-                  "scheduledStartTime": scheduled_start.isoformat() + "Z"
-                     },
-                    "status": {
-                        "privacyStatus": "public",
-                        "selfDeclaredMadeForKids": False,
-                        "enableAutoStart": True,
-                        "enableAutoStop": True,
-                        "enableArchive": True,
-                        "lifeCycleStatus": "created"
-                    }
+                    "title": titulo,
+                    "description": "Disfruta de nuestra selección musical las 24 horas del día. Música relajante, instrumental y ambiental para trabajar, estudiar, meditar o simplemente disfrutar. 🎵🎶\n\n📲 Síguenos: \n\nhttp://instagram.com/@desderelaxstation \n\nFacebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/ \n\nTikTok: https://www.tiktok.com/@desderelaxstation",
+                    "scheduledStartTime": scheduled_start.isoformat() + "Z"
+                  },
+                  "status": {
+                    "privacyStatus": "public",
+                    "selfDeclaredMadeForKids": False,
+                    "enableAutoStart": True,
+                    "enableAutoStop": True,
+                    "enableArchive": True
+                  }
                 }
             ).execute()
             
@@ -220,12 +240,17 @@ class YouTubeManager:
             
             thumbnail_path = self.generar_miniatura(video_path)
             if thumbnail_path and os.path.exists(thumbnail_path):
-                self.youtube.thumbnails().set(
-                    videoId=broadcast['id'],
-                    media_body=thumbnail_path
-                ).execute()
-                os.remove(thumbnail_path)
+                try:
+                    self.youtube.thumbnails().set(
+                        videoId=broadcast['id'],
+                        media_body=thumbnail_path
+                    ).execute()
+                except Exception as e:
+                    logging.error(f"Error subiendo miniatura: {str(e)}")
+                finally:
+                    os.remove(thumbnail_path)
             
+            logging.info(f"📡 Transmisión programada para {scheduled_start}")
             return {
                 "rtmp": f"{rtmp_url}/{stream_name}",
                 "scheduled_start": scheduled_start,
@@ -237,6 +262,9 @@ class YouTubeManager:
             return None
     
     def obtener_estado_stream(self, stream_id):
+        if not self.youtube:
+            return None
+            
         try:
             response = self.youtube.liveStreams().list(
                 part="status",
@@ -250,6 +278,9 @@ class YouTubeManager:
             return None
     
     def transicionar_estado(self, broadcast_id, estado):
+        if not self.youtube:
+            return False
+            
         try:
             self.youtube.liveBroadcasts().transition(
                 broadcastStatus=estado,
@@ -262,6 +293,9 @@ class YouTubeManager:
             return False
 
     def finalizar_transmision(self, broadcast_id):
+        if not self.youtube:
+            return False
+            
         try:
             self.youtube.liveBroadcasts().transition(
                 broadcastStatus="complete",
@@ -322,18 +356,21 @@ def crear_lista_reproduccion(gestor, duracion_horas=8):
     if not canciones:
         raise Exception("No hay canciones disponibles")
     
+    # Mezclar las canciones aleatoriamente
+    random.shuffle(canciones)
+    
+    # Calcular cuántas canciones necesitamos (estimando 4 minutos por canción)
+    canciones_necesarias = int((duracion_horas * 60) / 4)
+    
+    # Si no hay suficientes canciones, repetiremos algunas
     lista_reproduccion = []
-    tiempo_total = timedelta()
-    
-    # Estimación promedio de duración de canción (4 minutos)
-    duracion_estimada = timedelta(hours=duracion_horas)
-    canciones_necesarias = int((duracion_estimada.total_seconds() / 60) / 4)
-    
-    # Si no tenemos suficientes canciones, repetiremos algunas
     while len(lista_reproduccion) < canciones_necesarias:
-        cancion = random.choice(canciones)
-        lista_reproduccion.append(cancion)
+        lista_reproduccion.extend(canciones)
     
+    # Ajustar al número exacto necesario
+    lista_reproduccion = lista_reproduccion[:canciones_necesarias]
+    
+    logging.info(f"🎶 Lista de reproducción creada con {len(lista_reproduccion)} canciones")
     return lista_reproduccion
 
 def manejar_transmision(stream_data, youtube):
@@ -432,24 +469,43 @@ def manejar_transmision(stream_data, youtube):
             os.remove(lista_archivo)
 
 def ciclo_transmision():
+    logging.info("🔄 Iniciando ciclo de transmisión...")
+    
+    # Primero cargar todos los medios
     gestor = GestorContenido()
+    
+    # Verificar que tenemos contenido
+    if not gestor.medios['videos'] or not gestor.medios['musica']:
+        logging.error("❌ No hay suficientes medios para transmitir")
+        return
+    
+    # Luego autenticar con YouTube
     youtube = YouTubeManager()
+    if not youtube.youtube:
+        logging.error("❌ No se pudo autenticar con YouTube, reintentando en 1 minuto...")
+        time.sleep(60)
+        return
+    
     current_stream = None
     
     while True:
         try:
             if not current_stream:
-                video = random.choice(gestor.medios['videos'])
+                # Seleccionar video aleatorio
+                video = random.choice([v for v in gestor.medios['videos'] if v['local_path']])
                 logging.info(f"🎥 Video seleccionado: {video['name']}")
                 
+                # Crear playlist de música
                 playlist = crear_lista_reproduccion(gestor)
                 primera_cancion = playlist[0]
                 categoria = determinar_categoria(primera_cancion['name'])
-                logging.info(f"🎵 Playlist creada con {len(playlist)} canciones")
+                logging.info(f"🎵 Primera canción: {primera_cancion['name']} ({categoria})")
                 
+                # Generar título atractivo
                 titulo = generar_titulo_musica(primera_cancion['name'], categoria)
                 logging.info(f"📝 Título generado: {titulo}")
                 
+                # Crear transmisión en YouTube
                 stream_info = youtube.crear_transmision(titulo, video['local_path'])
                 if not stream_info:
                     raise Exception("Error creación transmisión")
@@ -464,6 +520,7 @@ def ciclo_transmision():
                     "end_time": stream_info['scheduled_start'] + timedelta(hours=8)
                 }
 
+                # Iniciar transmisión en segundo plano
                 threading.Thread(
                     target=manejar_transmision,
                     args=(current_stream, youtube),
@@ -473,6 +530,7 @@ def ciclo_transmision():
                 next_stream_time = current_stream['end_time'] + timedelta(minutes=5)
             
             else:
+                # Esperar hasta que sea hora de la próxima transmisión
                 if datetime.utcnow() >= next_stream_time:
                     current_stream = None
                     logging.info("🔄 Preparando nueva transmisión...")
@@ -490,5 +548,9 @@ def health_check():
 
 if __name__ == "__main__":
     logging.info("🎬 Iniciando servicio de streaming...")
+    
+    # Iniciar ciclo de transmisión en segundo plano
     threading.Thread(target=ciclo_transmision, daemon=True).start()
+    
+    # Iniciar servidor web
     serve(app, host='0.0.0.0', port=10000)
