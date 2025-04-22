@@ -327,7 +327,7 @@ def crear_lista_reproduccion(gestor, duracion_horas=8):
     
     # Estimación promedio de duración de canción (4 minutos)
     duracion_estimada = timedelta(hours=duracion_horas)
-    canciones_necesarias = int((duracion_estimada.total_seconds() / 60) / 4
+    canciones_necesarias = int((duracion_estimada.total_seconds() / 60) / 4)
     
     # Si no tenemos suficientes canciones, repetiremos algunas
     while len(lista_reproduccion) < canciones_necesarias:
