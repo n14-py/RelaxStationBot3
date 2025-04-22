@@ -85,27 +85,19 @@ class GestorContenido:
                 url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
             
             nombre_hash = hashlib.md5(url.encode()).hexdigest()
-            ruta_local = os.path.join(self.media_cache_dir, f"{nombre_hash}.wav")
+            ruta_local = os.path.join(self.media_cache_dir, f"{nombre_hash}.mp3")
             
             if os.path.exists(ruta_local):
                 return ruta_local
-                
-            temp_path = os.path.join(self.media_cache_dir, f"temp_{nombre_hash}.mp3")
-            
+
+            logging.info(f"⬇️ Descargando audio: {url}")
             with requests.get(url, stream=True, timeout=30) as r:
                 r.raise_for_status()
-                with open(temp_path, 'wb') as f:
+                with open(ruta_local, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
             
-            subprocess.run([
-                "ffmpeg", "-y", "-i", temp_path,
-                "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2",
-                ruta_local
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            os.remove(temp_path)
             return ruta_local
         except Exception as e:
             logging.error(f"Error procesando audio: {str(e)}")
@@ -388,10 +380,10 @@ def manejar_transmision(stream_data, youtube):
             for cancion in stream_data['playlist']:
                 f.write(f"file '{cancion['local_path']}'\n")
         
+        # Comando FFmpeg optimizado para YouTube Live
         cmd = [
             "ffmpeg",
-            "-loglevel", "error",
-            "-rtbufsize", "100M",
+            "-loglevel", "verbose",  # Cambiado a verbose para diagnóstico
             "-re",
             "-f", "concat",
             "-safe", "0",
@@ -399,26 +391,40 @@ def manejar_transmision(stream_data, youtube):
             "-i", stream_data['video']['local_path'],
             "-map", "0:a:0",
             "-map", "1:v:0",
-            "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1",
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-tune", "zerolatency",
-            "-x264-params", "keyint=48:min-keyint=48",
-            "-b:v", "3000k",
-            "-maxrate", "3000k",
-            "-bufsize", "6000k",
-            "-r", "24",
-            "-g", "48",
-            "-threads", "1",
-            "-flush_packets", "1",
+            "-x264-params", "keyint=60:min-keyint=60",
+            "-b:v", "4000k",
+            "-maxrate", "4000k",
+            "-bufsize", "8000k",
+            "-r", "30",
+            "-g", "60",
+            "-pix_fmt", "yuv420p",
             "-c:a", "aac",
-            "-b:a", "96k",
+            "-b:a", "128k",
             "-ar", "44100",
+            "-ac", "2",
             "-f", "flv",
             stream_data['rtmp']
         ]
         
-        proceso = subprocess.Popen(cmd)
+        logging.info(f"🔧 Comando FFmpeg completo:\n{' '.join(cmd)}")
+        
+        proceso = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
+        )
+        
+        # Hilo para leer la salida de FFmpeg en tiempo real
+        def leer_salida():
+            for linea in proceso.stdout:
+                logging.info(f"FFMPEG: {linea.strip()}")
+        
+        threading.Thread(target=leer_salida, daemon=True).start()
+        
         logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
         
         max_checks = 10
@@ -435,7 +441,7 @@ def manejar_transmision(stream_data, youtube):
         
         if not stream_activo:
             logging.error("❌ Stream no se activó a tiempo")
-            proceso.kill()
+            proceso.terminate()
             os.remove(lista_archivo)
             return
         
@@ -453,11 +459,11 @@ def manejar_transmision(stream_data, youtube):
         while (datetime.utcnow() - tiempo_inicio) < timedelta(hours=8):
             if proceso.poll() is not None:
                 logging.warning("⚡ Reconectando FFmpeg...")
-                proceso.kill()
+                proceso.terminate()
                 proceso = subprocess.Popen(cmd)
             time.sleep(15)
         
-        proceso.kill()
+        proceso.terminate()
         os.remove(lista_archivo)
         youtube.finalizar_transmision(stream_data['broadcast_id'])
         logging.info("🛑 Transmisión finalizada y archivada correctamente")
@@ -554,4 +560,3 @@ if __name__ == "__main__":
     
     # Iniciar servidor web
     serve(app, host='0.0.0.0', port=10000)
-    
