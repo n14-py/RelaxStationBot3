@@ -24,7 +24,7 @@ logging.basicConfig(
 )
 
 # Configuración
-MEDIOS_URL = "https://raw.githubusercontent.com/n14-py/RelaxStationmedios/master/mediosmusic.json"
+MEDIOS_URL = "https://raw.githubusercontent.com/n14-py/RelaxStationmedios/master/medios.json"
 YOUTUBE_CREDS = {
     'client_id': os.getenv("YOUTUBE_CLIENT_ID"),
     'client_secret': os.getenv("YOUTUBE_CLIENT_SECRET"),
@@ -32,11 +32,11 @@ YOUTUBE_CREDS = {
 }
 
 PALABRAS_CLAVE = {
-    'relax': ['relax', 'calm', 'peaceful'],
-    'instrumental': ['instrumental', 'piano', 'guitar'],
-    'ambient': ['ambient', 'atmospheric', 'space'],
-    'jazz': ['jazz', 'smooth', 'blues'],
-    'classical': ['classical', 'orchestra', 'symphony']
+    'lluvia': ['lluvia', 'rain', 'storm'],
+    'fuego': ['fuego', 'fire', 'chimenea'],
+    'bosque': ['bosque', 'jungla', 'forest'],
+    'rio': ['rio', 'river', 'cascada'],
+    'noche': ['noche', 'night', 'luna']
 }
 
 class GestorContenido:
@@ -105,35 +105,30 @@ class GestorContenido:
 
     def cargar_medios(self):
         try:
-            logging.info("📡 Obteniendo lista de medios desde GitHub...")
             respuesta = requests.get(MEDIOS_URL, timeout=20)
             respuesta.raise_for_status()
             datos = respuesta.json()
             
-            if not all(key in datos for key in ["videos", "musica"]):
+            if not all(key in datos for key in ["videos", "sonidos_naturaleza"]):
                 raise ValueError("Estructura JSON inválida")
             
-            # Descargar videos primero
-            logging.info("🎥 Iniciando descarga de videos...")
-            for i, video in enumerate(datos['videos'], 1):
-                logging.info(f"⬇️ Descargando video {i}/{len(datos['videos'])}: {video['name']}")
+            # Descargar videos
+            for video in datos['videos']:
                 video['local_path'] = self.descargar_video(video['url'])
                 if not video['local_path']:
-                    raise Exception(f"Fallo al descargar video: {video['name']}")
+                    raise Exception(f"No se pudo descargar video: {video['name']}")
             
-            # Luego descargar música
-            logging.info("🎵 Iniciando descarga de música...")
-            for j, cancion in enumerate(datos['musica'], 1):
-                logging.info(f"⬇️ Descargando canción {j}/{len(datos['musica'])}: {cancion['name']}")
-                cancion['local_path'] = self.descargar_audio(cancion['url'])
-                if not cancion['local_path']:
-                    raise Exception(f"Fallo al descargar canción: {cancion['name']}")
+            # Descargar audios
+            for audio in datos['sonidos_naturaleza']:
+                audio['local_path'] = self.descargar_audio(audio['url'])
+                if not audio['local_path']:
+                    raise Exception(f"No se pudo descargar audio: {audio['name']}")
             
             logging.info("✅ Todos los medios descargados y verificados")
             return datos
         except Exception as e:
-            logging.error(f"❌ Error cargando medios: {str(e)}")
-            return {"videos": [], "musica": []}
+            logging.error(f"Error cargando medios: {str(e)}")
+            return {"videos": [], "sonidos_naturaleza": []}
 
 class YouTubeManager:
     def __init__(self):
@@ -193,7 +188,7 @@ class YouTubeManager:
                 body={
                   "snippet": {
                     "title": titulo,
-                    "description": "Disfruta de nuestra selección musical las 24 horas del día. Música relajante, instrumental y ambiental para trabajar, estudiar, meditar o simplemente disfrutar. 🎵🎶\n\n📲 Síguenos: \n\nhttp://instagram.com/@desderelaxstation \n\nFacebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/ \n\nTikTok: https://www.tiktok.com/@desderelaxstation",
+                    "description": "Déjate llevar por la serenidad de la naturaleza con nuestro video Desde Relax Station. Los relajantes sonidos de la lluvia te transportarán a un lugar de paz y tranquilidad, ideal para dormir, meditar o concentrarte. Perfecto para desconectar y encontrar tu equilibrio interior. ¡Relájate y disfruta! 🔔💤🛏️\n\n📲 Síguenos: \n\nhttp://instagram.com/@desderelaxstation \n\nFacebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/ \n\nTikTok: https://www.tiktok.com/@desderelaxstation",
                     "scheduledStartTime": scheduled_start.isoformat() + "Z"
                   },
                   "status": {
@@ -299,8 +294,8 @@ class YouTubeManager:
             logging.error(f"Error finalizando transmisión: {str(e)}")
             return False
 
-def determinar_categoria(nombre_musica):
-    nombre = nombre_musica.lower()
+def determinar_categoria(nombre_video):
+    nombre = nombre_video.lower()
     contador = {categoria: 0 for categoria in PALABRAS_CLAVE}
     
     for palabra in nombre.split():
@@ -311,59 +306,65 @@ def determinar_categoria(nombre_musica):
     max_categoria = max(contador, key=contador.get)
     return max_categoria if contador[max_categoria] > 0 else random.choice(list(PALABRAS_CLAVE.keys()))
 
-def seleccionar_musica_aleatoria(gestor):
-    canciones_disponibles = [m for m in gestor.medios['musica'] if m['local_path']]
-    if not canciones_disponibles:
-        raise Exception("No hay música disponible para transmitir")
-    return random.choice(canciones_disponibles)
+def seleccionar_audio_compatible(gestor, categoria_video):
+    audios_compatibles = [
+        audio for audio in gestor.medios['sonidos_naturaleza']
+        if audio['local_path'] and 
+        any(palabra in audio['name'].lower() 
+        for palabra in PALABRAS_CLAVE[categoria_video])
+    ]
+    
+    if not audios_compatibles:
+        audios_compatibles = [a for a in gestor.medios['sonidos_naturaleza'] if a['local_path']]
+    
+    return random.choice(audios_compatibles)
 
-def generar_titulo_musica(nombre_musica, categoria):
+def generar_titulo(nombre_video, categoria):
+    ubicaciones = {
+        'departamento': ['Departamento Acogedor', 'Loft Moderno', 'Ático con Vista', 'Estudio Minimalista'],
+        'cabaña': ['Cabaña en el Bosque', 'Refugio Montañoso', 'Chalet de Madera', 'Cabaña junto al Lago'],
+        'cueva': ['Cueva Acogedor', 'Gruta Acogedora', 'Cueva con Chimenea', 'Casa Cueva Moderna'],
+        'selva': ['Cabaña en la Selva', 'Refugio Tropical', 'Habitación en la Jungla', 'Casa del Árbol'],
+        'default': ['Entorno Relajante', 'Espacio Zen', 'Lugar de Paz', 'Refugio Natural']
+    }
+    
+    ubicacion_keys = {
+        'departamento': ['departamento', 'loft', 'ático', 'estudio', 'apartamento'],
+        'cabaña': ['cabaña', 'chalet', 'madera', 'bosque', 'lago'],
+        'cueva': ['cueva', 'gruta', 'caverna', 'roca'],
+        'selva': ['selva', 'jungla', 'tropical', 'palmeras']
+    }
+    
     actividades = [
-        ('Relajarse', '😌'), ('Estudiar', '📚'), ('Trabajar', '💻'), 
-        ('Meditar', '🧘♂️'), ('Dormir', '🌙'), ('Concentrarse', '🎯'),
-        ('Leer', '📖'), ('Crear', '🎨'), ('Programar', '💻')
+        ('Dormir', '🌙'), ('Estudiar', '📚'), ('Meditar', '🧘♂️'), 
+        ('Trabajar', '💻'), ('Desestresarse', '😌'), ('Concentrarse', '🎯')
     ]
     
     beneficios = [
-        'Mejorar la Concentración', 'Reducir el Estrés', 'Aumentar la Productividad',
-        'Favorecer la Relajación', 'Inducir al Sueño', 'Estimular la Creatividad',
-        'Armonizar el Ambiente', 'Equilibrar las Emociones'
+        'Aliviar el Insomnio', 'Reducir la Ansiedad', 'Mejorar la Concentración',
+        'Relajación Profunda', 'Conexión con la Naturaleza', 'Sueño Reparador',
+        'Calma Interior'
     ]
 
+    ubicacion_tipo = 'default'
+    nombre = nombre_video.lower()
+    for key, words in ubicacion_keys.items():
+        if any(palabra in nombre for palabra in words):
+            ubicacion_tipo = key
+            break
+            
+    ubicacion = random.choice(ubicaciones.get(ubicacion_tipo, ubicaciones['default']))
     actividad, emoji_act = random.choice(actividades)
     beneficio = random.choice(beneficios)
     
     plantillas = [
-        f"Música de {categoria.capitalize()} • {nombre_musica} | Perfecta para {actividad} {emoji_act} | {beneficio}",
-        f"{nombre_musica} • {categoria.capitalize()} para {actividad} {emoji_act} | {beneficio}",
-        f"{beneficio} • {nombre_musica} | Música {categoria.capitalize()} {emoji_act}",
-        f"Relájate con {nombre_musica} • {categoria.capitalize()} para {actividad} {emoji_act} | {beneficio}"
+        f"{ubicacion} • Sonidos de {categoria.capitalize()} para {actividad} {emoji_act} | {beneficio}",
+        f"{actividad} {emoji_act} con Sonidos de {categoria.capitalize()} en {ubicacion} | {beneficio}",
+        f"{beneficio} • {ubicacion} con Ambiente de {categoria.capitalize()} {emoji_act}",
+        f"Relájate en {ubicacion} • {categoria.capitalize()} para {actividad} {emoji_act} | {beneficio}"
     ]
     
     return random.choice(plantillas)
-
-def crear_lista_reproduccion(gestor, duracion_horas=8):
-    """Crea una lista de reproducción aleatoria que durará aproximadamente duracion_horas"""
-    canciones = [m for m in gestor.medios['musica'] if m['local_path']]
-    if not canciones:
-        raise Exception("No hay canciones disponibles")
-    
-    # Mezclar las canciones aleatoriamente
-    random.shuffle(canciones)
-    
-    # Calcular cuántas canciones necesitamos (estimando 4 minutos por canción)
-    canciones_necesarias = int((duracion_horas * 60) / 4)
-    
-    # Si no hay suficientes canciones, repetiremos algunas
-    lista_reproduccion = []
-    while len(lista_reproduccion) < canciones_necesarias:
-        lista_reproduccion.extend(canciones)
-    
-    # Ajustar al número exacto necesario
-    lista_reproduccion = lista_reproduccion[:canciones_necesarias]
-    
-    logging.info(f"🎶 Lista de reproducción creada con {len(lista_reproduccion)} canciones")
-    return lista_reproduccion
 
 def manejar_transmision(stream_data, youtube):
     try:
@@ -374,30 +375,25 @@ def manejar_transmision(stream_data, youtube):
             logging.info(f"⏳ Esperando {espera_ffmpeg:.0f} segundos para iniciar FFmpeg...")
             time.sleep(espera_ffmpeg)
         
-        # Crear archivo de lista de reproducción para FFmpeg
-        lista_archivo = os.path.join(stream_data['video']['local_path'] + ".txt")
-        with open(lista_archivo, 'w') as f:
-            for cancion in stream_data['playlist']:
-                f.write(f"file '{cancion['local_path']}'\n")
-        
         # Comando FFmpeg optimizado para YouTube Live
         cmd = [
             "ffmpeg",
-            "-loglevel", "verbose",  # Cambiado a verbose para diagnóstico
+            "-loglevel", "verbose",
             "-re",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", lista_archivo,
+            "-stream_loop", "-1",
             "-i", stream_data['video']['local_path'],
-            "-map", "0:a:0",
-            "-map", "1:v:0",
+            "-stream_loop", "-1",
+            "-i", stream_data['audio']['local_path'],
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1:color=black,setsar=1",
             "-c:v", "libx264",
-            "-preset", "ultrafast",
+            "-preset", "fast",
             "-tune", "zerolatency",
             "-x264-params", "keyint=60:min-keyint=60",
-            "-b:v", "4000k",
-            "-maxrate", "4000k",
-            "-bufsize", "8000k",
+            "-b:v", "5000k",
+            "-maxrate", "5000k",
+            "-bufsize", "10000k",
             "-r", "30",
             "-g", "60",
             "-pix_fmt", "yuv420p",
@@ -442,7 +438,6 @@ def manejar_transmision(stream_data, youtube):
         if not stream_activo:
             logging.error("❌ Stream no se activó a tiempo")
             proceso.terminate()
-            os.remove(lista_archivo)
             return
         
         tiempo_restante = (stream_data['start_time'] - datetime.utcnow()).total_seconds()
@@ -464,15 +459,12 @@ def manejar_transmision(stream_data, youtube):
             time.sleep(15)
         
         proceso.terminate()
-        os.remove(lista_archivo)
         youtube.finalizar_transmision(stream_data['broadcast_id'])
         logging.info("🛑 Transmisión finalizada y archivada correctamente")
 
     except Exception as e:
         logging.error(f"Error en hilo de transmisión: {str(e)}")
         youtube.finalizar_transmision(stream_data['broadcast_id'])
-        if 'lista_archivo' in locals() and os.path.exists(lista_archivo):
-            os.remove(lista_archivo)
 
 def ciclo_transmision():
     logging.info("🔄 Iniciando ciclo de transmisión...")
@@ -481,7 +473,7 @@ def ciclo_transmision():
     gestor = GestorContenido()
     
     # Verificar que tenemos contenido
-    if not gestor.medios['videos'] or not gestor.medios['musica']:
+    if not gestor.medios['videos'] or not gestor.medios['sonidos_naturaleza']:
         logging.error("❌ No hay suficientes medios para transmitir")
         return
     
@@ -501,14 +493,13 @@ def ciclo_transmision():
                 video = random.choice([v for v in gestor.medios['videos'] if v['local_path']])
                 logging.info(f"🎥 Video seleccionado: {video['name']}")
                 
-                # Crear playlist de música
-                playlist = crear_lista_reproduccion(gestor)
-                primera_cancion = playlist[0]
-                categoria = determinar_categoria(primera_cancion['name'])
-                logging.info(f"🎵 Primera canción: {primera_cancion['name']} ({categoria})")
+                categoria = determinar_categoria(video['name'])
+                logging.info(f"🏷️ Categoría detectada: {categoria}")
                 
-                # Generar título atractivo
-                titulo = generar_titulo_musica(primera_cancion['name'], categoria)
+                audio = seleccionar_audio_compatible(gestor, categoria)
+                logging.info(f"🔊 Audio seleccionado: {audio['name']}")
+                
+                titulo = generar_titulo(video['name'], categoria)
                 logging.info(f"📝 Título generado: {titulo}")
                 
                 # Crear transmisión en YouTube
@@ -518,9 +509,9 @@ def ciclo_transmision():
                 
                 current_stream = {
                     "rtmp": stream_info['rtmp'],
-                    "start_time": stream_info['scheduled_start'],
+                    "start_time": stream_data['scheduled_start'],
                     "video": video,
-                    "playlist": playlist,
+                    "audio": audio,
                     "broadcast_id": stream_info['broadcast_id'],
                     "stream_id": stream_info['stream_id'],
                     "end_time": stream_info['scheduled_start'] + timedelta(hours=8)
