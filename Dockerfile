@@ -1,4 +1,3 @@
-
 # Usar versión estable de Debian con compiladores necesarios
 FROM python:3.9-slim-bullseye
 
