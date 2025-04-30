@@ -381,33 +381,35 @@ def manejar_transmision(stream_data, youtube):
                 f.write(f"file '{cancion['local_path']}'\n")
         
         # Comando FFmpeg optimizado para YouTube Live
+# Comando FFmpeg optimizado con loop de video
         cmd = [
-            "ffmpeg",
-            "-loglevel", "verbose",  # Cambiado a verbose para diagnóstico
-            "-re",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", lista_archivo,
-            "-i", stream_data['video']['local_path'],
-            "-map", "0:a:0",
-            "-map", "1:v:0",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-tune", "zerolatency",
-            "-x264-params", "keyint=60:min-keyint=60",
-            "-b:v", "4000k",
-            "-maxrate", "4000k",
-            "-bufsize", "8000k",
-            "-r", "30",
-            "-g", "60",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-ar", "44100",
-            "-ac", "2",
-            "-f", "flv",
-            stream_data['rtmp']
-        ]
+    "ffmpeg",
+    "-loglevel", "verbose",
+    "-re",
+    "-f", "concat",
+    "-safe", "0",
+    "-i", lista_archivo,
+    "-stream_loop", "-1",  # <--- Añadir esta línea para loop infinito
+    "-i", stream_data['video']['local_path'],
+    "-map", "0:a:0",
+    "-map", "1:v:0",
+    "-c:v", "libx264",
+    "-preset", "ultrafast",
+    "-tune", "zerolatency",
+    "-x264-params", "keyint=60:min-keyint=60",
+    "-b:v", "4000k",
+    "-maxrate", "4000k",
+    "-bufsize", "8000k",
+    "-r", "30",
+    "-g", "60",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
+    "-b:a", "128k",
+    "-ar", "44100",
+    "-ac", "2",
+    "-f", "flv",
+    stream_data['rtmp']
+]
         
         logging.info(f"🔧 Comando FFmpeg completo:\n{' '.join(cmd)}")
         
