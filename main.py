@@ -334,11 +334,17 @@ def generar_titulo_musica(nombre_musica, categoria):
     beneficio = random.choice(beneficios)
     
     plantillas = [
-        f"Música de {categoria.capitalize()} • {nombre_musica} | Perfecta para {actividad} {emoji_act} | {beneficio}",
-        f"{nombre_musica} • {categoria.capitalize()} para {actividad} {emoji_act} | {beneficio}",
-        f"{beneficio} • {nombre_musica} | Música {categoria.capitalize()} {emoji_act}",
-        f"Relájate con {nombre_musica} • {categoria.capitalize()} para {actividad} {emoji_act} | {beneficio}"
-    ]
+    f"Lofi Chill {categoria.capitalize()} • Ideal para {actividad} {emoji_act} | {beneficio}",
+    f"Música suave para {actividad} {emoji_act} • {beneficio} garantizado",
+    f"Ambiente Lofi para {actividad} {emoji_act} • {beneficio} y más",
+    f"🎵 Lofi Chill para {actividad} {emoji_act} • {beneficio}",
+    f"Tus momentos de {actividad} {emoji_act} con música Lofi {categoria.capitalize()} • {beneficio}",
+    f"Lofi Chill Daily • {actividad} {emoji_act} y {beneficio.lower()}",
+    f"Música relajante tipo Lofi Chill • {beneficio} mientras {actividad.lower()}s {emoji_act}",
+    f"🌙 Sesión de Lofi Chill para {actividad} {emoji_act} • {beneficio}",
+    f"Lofi Vibes para {actividad} {emoji_act} • {beneficio} incluido"
+]
+
     
     return random.choice(plantillas)
 
