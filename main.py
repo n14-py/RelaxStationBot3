@@ -1,4 +1,3 @@
-
 import os
 import random
 import subprocess
@@ -194,7 +193,7 @@ class YouTubeManager:
                 body={
                   "snippet": {
                     "title": titulo,
-                    "description": "Disfruta de nuestra selección musical las 24 horas del día. Música relajante, instrumental y ambiental para trabajar, estudiar, meditar o simplemente disfrutar. 🎵🎶\n\n📲 Síguenos: \n\nhttp://instagram.com/@desderelaxstation \n\nFacebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/ \n\nTikTok: https://www.tiktok.com/@desderelaxstation",
+                    "description": "Sumérgete en un viaje de relajación y enfoque con nuestras melodías lofi Desde Relax Station. Cada nota está diseñada para ayudarte a desconectar del estrés diario y reconectar contigo mismo. Ideal para estudiar, trabajar, relajarte o simplemente disfrutar del momento presente. Nuestra música lofi crea una atmósfera suave y acogedora, perfecta para acompañarte en tus mejores momentos de paz y creatividad. ¡Dale play y siente la vibra! 🎧📚🌙\n📲 Síguenos:  \nInstagram: http://instagram.com/@desderelaxstation \nFacebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/ \nTikTok: https://www.tiktok.com/@desderelaxstation \nSpotify: https://open.spotify.com/intl-es/artist/7J4Rf0Q97OcDjg3kmBXSRj \n🚫IGNORAR TAGS DesdeRelaxStation, lofi, lo-fi, chill, chillhop, chill beats, beats para estudiar, música para trabajar, música lofi relajante, relajación lofi, beats suaves, relajación, estudio, enfoque, concentración, ambient lofi, fondo musical, música instrumental, chill music, música para concentración, música sin letra, focus music, night lofi, música tranquila, música de fondo, atmósfera suave, música relajante, trabajo relajado, relajación mental, ambiente lofi, ritmo tranquilo, lo-fi vibes, vibes relajantes, descanso, música para leer, lectura relajada, cafe vibes, lluvia lofi, música para dormir, descanso mental, claridad mental, paz interior, paz mental, meditación lofi, sonidos suaves, vibras positivas, energía tranquila, inspiración, inspiración creativa, creatividad, fluir mental, ambiente acogedor, bienestar auditivo, relajación total, zen lofi, frecuencia lofi, vibes nocturnas, mente en calma, música para dibujar, música artística, fondo perfecto, música para pensar, beats chill, serenidad, armonía, introspección, música minimalista, relax profundo, música sin distracción, concentración máxima, inspiración lofi, relajación auditiva, audio calmante, música emocional, descanso emocional, beats relajados, música para productividad, paz sonora, música fluida, entorno relajado, momento chill, chill session, slow beats, mood lofi, universo lofi, universo chill, estado zen, lofi en casa, estudio profundo, sesión de enfoque, productividad en casa, paz creativa, serenidad lofi, música envolvente, ambiente creativo, trabajo en casa, música para freelancing, lofi loop, calma auditiva, lluvia y lofi, fondo suave, descanso total, descanso consciente, antiestrés, antiansiedad, terapia sonora, terapia lofi, sonidos para bienestar, música de noche, noche tranquila, beats introspectivos, alma relajada, vibraciones positivas, música para paz mental, mental detox, limpieza mental, lofi relaxing, tranquil beats, chill out, estudio zen, energía suave, flow mental, espacio tranquilo, ambiente sonoro, chill workspace, slow music, chill soundscape, fondo emocional, vibes suaves, ritmo suave, soundscape relajante, estudio acompañado, música suave, relajación suave, ambiente relajante, paz sonora, enfoque total, claridad emocional, serenidad creativa, zen music, música de paz, estado mental positivo, tranquilidad, mente despejada, música sin interrupciones, sonido lofi puro, atmósfera chill, mental wellness, calm beat, chill tunes, relaxing vibes, audio positivo, relajación continua, calma creativa, focus zone, zona de estudio, audio relajado, estudio con música, fondo relajante, inspiración total, chill lofi vibes, enfoque silencioso, música zen, ambientación lofi, descanso sensorial, lo-fi aesthetic, noche de estudio, sesión lofi, café con lofi, vibración tranquila, armonía mental, ritmos relajantes, música para fluir, descanso productivo, relax continuo, vibes creativas, calma suave, atmósfera emocional, chill sin pausas, música para concentración extrema, beat tranquilo, estado mental zen, escucha relajante, atmósfera introspectiva, pensamientos en calma, música background creativa, beats estéticos, universo tranquilo.",
                     "scheduledStartTime": scheduled_start.isoformat() + "Z"
                   },
                   "status": {
@@ -335,11 +334,17 @@ def generar_titulo_musica(nombre_musica, categoria):
     beneficio = random.choice(beneficios)
     
     plantillas = [
-        f"Música de {categoria.capitalize()} • {nombre_musica} | Perfecta para {actividad} {emoji_act} | {beneficio}",
-        f"{nombre_musica} • {categoria.capitalize()} para {actividad} {emoji_act} | {beneficio}",
-        f"{beneficio} • {nombre_musica} | Música {categoria.capitalize()} {emoji_act}",
-        f"Relájate con {nombre_musica} • {categoria.capitalize()} para {actividad} {emoji_act} | {beneficio}"
-    ]
+    f"Lofi Chill {categoria.capitalize()} • Ideal para {actividad} {emoji_act} | {beneficio}",
+    f"Música suave para {actividad} {emoji_act} • {beneficio} garantizado",
+    f"Ambiente Lofi para {actividad} {emoji_act} • {beneficio} y más",
+    f"🎵 Lofi Chill para {actividad} {emoji_act} • {beneficio}",
+    f"Tus momentos de {actividad} {emoji_act} con música Lofi {categoria.capitalize()} • {beneficio}",
+    f"Lofi Chill Daily • {actividad} {emoji_act} y {beneficio.lower()}",
+    f"Música relajante tipo Lofi Chill • {beneficio} mientras {actividad.lower()}s {emoji_act}",
+    f"🌙 Sesión de Lofi Chill para {actividad} {emoji_act} • {beneficio}",
+    f"Lofi Vibes para {actividad} {emoji_act} • {beneficio} incluido"
+]
+
     
     return random.choice(plantillas)
 
@@ -385,29 +390,32 @@ def manejar_transmision(stream_data, youtube):
 # Comando FFmpeg optimizado con loop de video
         cmd = [
     "ffmpeg",
-    "-loglevel", "verbose",
+    "-loglevel", "error",  # Reducir verbosidad
+    "-rtbufsize", "100M",  # Buffer en tiempo real
     "-re",
     "-f", "concat",
     "-safe", "0",
+    "-stream_loop", "-1",  # Loop infinito para la playlist
     "-i", lista_archivo,
-    "-stream_loop", "-1",  # <--- Añadir esta línea para loop infinito
+    "-stream_loop", "-1",  # Loop infinito para el video
     "-i", stream_data['video']['local_path'],
     "-map", "0:a:0",
     "-map", "1:v:0",
+    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1",
     "-c:v", "libx264",
     "-preset", "ultrafast",
     "-tune", "zerolatency",
-    "-x264-params", "keyint=60:min-keyint=60",
-    "-b:v", "4000k",
-    "-maxrate", "4000k",
-    "-bufsize", "8000k",
-    "-r", "30",
-    "-g", "60",
-    "-pix_fmt", "yuv420p",
+    "-x264-params", "keyint=48:min-keyint=48",
+    "-b:v", "3000k",  # Bitrate reducido
+    "-maxrate", "3000k",
+    "-bufsize", "6000k",
+    "-r", "24",  # Frame rate más bajo
+    "-g", "48",
+    "-threads", "1",
+    "-flush_packets", "1",
     "-c:a", "aac",
-    "-b:a", "128k",
+    "-b:a", "96k",  # Bitrate de audio reducido
     "-ar", "44100",
-    "-ac", "2",
     "-f", "flv",
     stream_data['rtmp']
 ]
@@ -415,11 +423,10 @@ def manejar_transmision(stream_data, youtube):
         logging.info(f"🔧 Comando FFmpeg completo:\n{' '.join(cmd)}")
         
         proceso = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True
-        )
+    cmd,
+    stdout=subprocess.DEVNULL,  # No mostrar salida
+    stderr=subprocess.DEVNULL,
+)
         
         # Hilo para leer la salida de FFmpeg en tiempo real
         def leer_salida():
