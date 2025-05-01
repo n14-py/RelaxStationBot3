@@ -113,7 +113,6 @@ class GestorContenido:
             if not all(key in datos for key in ["videos", "musica"]):
                 raise ValueError("Estructura JSON inválida")
             
-            # Descargar videos primero
             logging.info("🎥 Iniciando descarga de videos...")
             for i, video in enumerate(datos['videos'], 1):
                 logging.info(f"⬇️ Descargando video {i}/{len(datos['videos'])}: {video['name']}")
@@ -121,7 +120,6 @@ class GestorContenido:
                 if not video['local_path']:
                     raise Exception(f"Fallo al descargar video: {video['name']}")
             
-            # Luego descargar música
             logging.info("🎵 Iniciando descarga de música...")
             for j, cancion in enumerate(datos['musica'], 1):
                 logging.info(f"⬇️ Descargando canción {j}/{len(datos['musica'])}: {cancion['name']}")
@@ -193,7 +191,7 @@ class YouTubeManager:
                 body={
                   "snippet": {
                     "title": titulo,
-                    "description": "Sumérgete en un viaje de relajación y enfoque con nuestras melodías lofi Desde Relax Station. Cada nota está diseñada para ayudarte a desconectar del estrés diario y reconectar contigo mismo. Ideal para estudiar, trabajar, relajarte o simplemente disfrutar del momento presente. Nuestra música lofi crea una atmósfera suave y acogedora, perfecta para acompañarte en tus mejores momentos de paz y creatividad. ¡Dale play y siente la vibra! 🎧📚🌙\n📲 Síguenos:  \nInstagram: http://instagram.com/@desderelaxstation \nFacebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/ \nTikTok: https://www.tiktok.com/@desderelaxstation \nSpotify: https://open.spotify.com/intl-es/artist/7J4Rf0Q97OcDjg3kmBXSRj \n🚫IGNORAR TAGS DesdeRelaxStation, lofi, lo-fi, chill, chillhop, chill beats, beats para estudiar, música para trabajar, música lofi relajante, relajación lofi, beats suaves, relajación, estudio, enfoque, concentración, ambient lofi, fondo musical, música instrumental, chill music, música para concentración, música sin letra, focus music, night lofi, música tranquila, música de fondo, atmósfera suave, música relajante, trabajo relajado, relajación mental, ambiente lofi, ritmo tranquilo, lo-fi vibes, vibes relajantes, descanso, música para leer, lectura relajada, cafe vibes, lluvia lofi, música para dormir, descanso mental, claridad mental, paz interior, paz mental, meditación lofi, sonidos suaves, vibras positivas, energía tranquila, inspiración, inspiración creativa, creatividad, fluir mental, ambiente acogedor, bienestar auditivo, relajación total, zen lofi, frecuencia lofi, vibes nocturnas, mente en calma, música para dibujar, música artística, fondo perfecto, música para pensar, beats chill, serenidad, armonía, introspección, música minimalista, relax profundo, música sin distracción, concentración máxima, inspiración lofi, relajación auditiva, audio calmante, música emocional, descanso emocional, beats relajados, música para productividad, paz sonora, música fluida, entorno relajado, momento chill, chill session, slow beats, mood lofi, universo lofi, universo chill, estado zen, lofi en casa, estudio profundo, sesión de enfoque, productividad en casa, paz creativa, serenidad lofi, música envolvente, ambiente creativo, trabajo en casa, música para freelancing, lofi loop, calma auditiva, lluvia y lofi, fondo suave, descanso total, descanso consciente, antiestrés, antiansiedad, terapia sonora, terapia lofi, sonidos para bienestar, música de noche, noche tranquila, beats introspectivos, alma relajada, vibraciones positivas, música para paz mental, mental detox, limpieza mental, lofi relaxing, tranquil beats, chill out, estudio zen, energía suave, flow mental, espacio tranquilo, ambiente sonoro, chill workspace, slow music, chill soundscape, fondo emocional, vibes suaves, ritmo suave, soundscape relajante, estudio acompañado, música suave, relajación suave, ambiente relajante, paz sonora, enfoque total, claridad emocional, serenidad creativa, zen music, música de paz, estado mental positivo, tranquilidad, mente despejada, música sin interrupciones, sonido lofi puro, atmósfera chill, mental wellness, calm beat, chill tunes, relaxing vibes, audio positivo, relajación continua, calma creativa, focus zone, zona de estudio, audio relajado, estudio con música, fondo relajante, inspiración total, chill lofi vibes, enfoque silencioso, música zen, ambientación lofi, descanso sensorial, lo-fi aesthetic, noche de estudio, sesión lofi, café con lofi, vibración tranquila, armonía mental, ritmos relajantes, música para fluir, descanso productivo, relax continuo, vibes creativas, calma suave, atmósfera emocional, chill sin pausas, música para concentración extrema, beat tranquilo, estado mental zen, escucha relajante, atmósfera introspectiva, pensamientos en calma, música background creativa, beats estéticos, universo tranquilo.",
+                    "description": "Sumérgete en un viaje de relajación y enfoque...",  # Descripción acortada
                     "scheduledStartTime": scheduled_start.isoformat() + "Z"
                   },
                   "status": {
@@ -213,10 +211,10 @@ class YouTubeManager:
                         "title": "Stream de ingesta principal"
                     },
                     "cdn": {
-                        "format": "1080p",
+                        "format": "720p",
                         "ingestionType": "rtmp",
-                        "resolution": "1080p",
-                        "frameRate": "30fps"
+                        "resolution": "720p",
+                        "frameRate": "24fps"
                     }
                 }
             ).execute()
@@ -344,30 +342,22 @@ def generar_titulo_musica(nombre_musica, categoria):
     f"🌙 Sesión de Lofi Chill para {actividad} {emoji_act} • {beneficio}",
     f"Lofi Vibes para {actividad} {emoji_act} • {beneficio} incluido"
 ]
-
     
     return random.choice(plantillas)
 
 def crear_lista_reproduccion(gestor, duracion_horas=8):
-    """Crea una lista de reproducción aleatoria que durará aproximadamente duracion_horas"""
     canciones = [m for m in gestor.medios['musica'] if m['local_path']]
     if not canciones:
         raise Exception("No hay canciones disponibles")
     
-    # Mezclar las canciones aleatoriamente
     random.shuffle(canciones)
-    
-    # Calcular cuántas canciones necesitamos (estimando 4 minutos por canción)
     canciones_necesarias = int((duracion_horas * 60) / 4)
     
-    # Si no hay suficientes canciones, repetiremos algunas
     lista_reproduccion = []
     while len(lista_reproduccion) < canciones_necesarias:
         lista_reproduccion.extend(canciones)
     
-    # Ajustar al número exacto necesario
     lista_reproduccion = lista_reproduccion[:canciones_necesarias]
-    
     logging.info(f"🎶 Lista de reproducción creada con {len(lista_reproduccion)} canciones")
     return lista_reproduccion
 
@@ -380,74 +370,70 @@ def manejar_transmision(stream_data, youtube):
             logging.info(f"⏳ Esperando {espera_ffmpeg:.0f} segundos para iniciar FFmpeg...")
             time.sleep(espera_ffmpeg)
         
-        # Crear archivo de lista de reproducción para FFmpeg
         lista_archivo = os.path.join(stream_data['video']['local_path'] + ".txt")
         with open(lista_archivo, 'w') as f:
             for cancion in stream_data['playlist']:
                 f.write(f"file '{cancion['local_path']}'\n")
         
-        # Comando FFmpeg optimizado para YouTube Live
-# Comando FFmpeg optimizado con loop de video
+        # FFmpeg optimizado para servidores de bajos recursos
         cmd = [
     "ffmpeg",
-    "-loglevel", "error",
-    "-rtbufsize", "150M",  # Buffer aumentado
-    "-re",
+    "-loglevel", "error",       # Solo mostrar errores
+    "-rtbufsize", "100M",       # Buffer en tiempo real reducido
+    "-re",                      # Leer entrada a velocidad nativa
     "-f", "concat",
     "-safe", "0",
-    "-stream_loop", "-1",
+    "-stream_loop", "-1",       # Loop infinito para audio
     "-i", lista_archivo,
-    "-stream_loop", "-1",
-    "-i", stream_data['video']['local_path'],
-    "-map", "0:a:0",
-    "-map", "1:v:0",
-    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1,format=yuv420p",
+    
+    "-stream_loop", "-1",       # Loop infinito para video
+    "-i", video_path,
+    
+    # Configuración de Video
+    "-map", "0:a:0",            # Toma el primer audio de la playlist
+    "-map", "1:v:0",            # Toma el primer video del archivo
+    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1,fps=24",
+    
     "-c:v", "libx264",
-    "-preset", "ultrafast",
+    "-preset", "superfast",     # Balance entre velocidad y calidad
     "-tune", "zerolatency",
-    "-x264-params", "keyint=48:min-keyint=48:no-scenecut=1",  # Desactiva detección de escenas
-    "-b:v", "3500k",  # Bitrate balanceado
-    "-maxrate", "3500k",
-    "-bufsize", "7000k",
-    "-r", "24",
-    "-g", "48",
-    "-threads", "2",  # Mejor uso de CPU
-    "-flush_packets", "0",  # Mejor sincronización
+    "-x264-params", "keyint=48:min-keyint=48:scenecut=0",
+    "-b:v", "2500k",            # Bitrate óptimo para 1080p bajo
+    "-maxrate", "3000k",
+    "-bufsize", "5000k",        # Buffer más pequeño para VPS limitado
+    "-r", "24",                 # Frame rate reducido
+    "-g", "48",                 # Grupo de imágenes cada 2 segundos
+    "-threads", "2",            # Usar solo 2 hilos para CPU limitada
+    
+    # Configuración de Audio
     "-c:a", "aac",
-    "-b:a", "128k",  # Mejor calidad de audio
-    "-ar", "48000",
+    "-b:a", "96k",              # Audio de calidad aceptable
+    "-ar", "44100",
+    "-ac", "1",                 # Mono para reducir carga
+    
     "-f", "flv",
-    stream_data['rtmp']
+    "-flvflags", "no_duration_filesize",
+    stream_url
 ]
         
-        logging.info(f"🔧 Comando FFmpeg completo:\n{' '.join(cmd)}")
-        
         proceso = subprocess.Popen(
-    cmd,
-    stdout=subprocess.DEVNULL,  # No mostrar salida
-    stderr=subprocess.DEVNULL,
-)
-        
-        # Hilo para leer la salida de FFmpeg en tiempo real
-        def leer_salida():
-            for linea in proceso.stdout:
-                logging.info(f"FFMPEG: {linea.strip()}")
-        
-        threading.Thread(target=leer_salida, daemon=True).start()
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         
         logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
         
-        max_checks = 15
+        max_checks = 20
         stream_activo = False
         for _ in range(max_checks):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
             if estado == 'active':
-                logging.info("✅ Stream activo - Transicionando a testing")
                 if youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
                     logging.info("🎬 Transmisión en VISTA PREVIA")
                     stream_activo = True
                 break
-            time.sleep(15)
+            time.sleep(10)
         
         if not stream_activo:
             logging.error("❌ Stream no se activó a tiempo")
@@ -460,8 +446,11 @@ def manejar_transmision(stream_data, youtube):
             logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
             time.sleep(tiempo_restante)
         
-        if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
-            logging.info("🎥 Transmisión LIVE iniciada")
+        for _ in range(3):  # Reintentos para transición a live
+            if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
+                logging.info("🎥 Transmisión LIVE iniciada")
+                break
+            time.sleep(10)
         else:
             raise Exception("No se pudo iniciar la transmisión")
         
@@ -487,15 +476,12 @@ def manejar_transmision(stream_data, youtube):
 def ciclo_transmision():
     logging.info("🔄 Iniciando ciclo de transmisión...")
     
-    # Primero cargar todos los medios
     gestor = GestorContenido()
     
-    # Verificar que tenemos contenido
     if not gestor.medios['videos'] or not gestor.medios['musica']:
         logging.error("❌ No hay suficientes medios para transmitir")
         return
     
-    # Luego autenticar con YouTube
     youtube = YouTubeManager()
     if not youtube.youtube:
         logging.error("❌ No se pudo autenticar con YouTube, reintentando en 1 minuto...")
@@ -507,21 +493,17 @@ def ciclo_transmision():
     while True:
         try:
             if not current_stream:
-                # Seleccionar video aleatorio
                 video = random.choice([v for v in gestor.medios['videos'] if v['local_path']])
                 logging.info(f"🎥 Video seleccionado: {video['name']}")
                 
-                # Crear playlist de música
                 playlist = crear_lista_reproduccion(gestor)
                 primera_cancion = playlist[0]
                 categoria = determinar_categoria(primera_cancion['name'])
                 logging.info(f"🎵 Primera canción: {primera_cancion['name']} ({categoria})")
                 
-                # Generar título atractivo
                 titulo = generar_titulo_musica(primera_cancion['name'], categoria)
                 logging.info(f"📝 Título generado: {titulo}")
                 
-                # Crear transmisión en YouTube
                 stream_info = youtube.crear_transmision(titulo, video['local_path'])
                 if not stream_info:
                     raise Exception("Error creación transmisión")
@@ -536,7 +518,6 @@ def ciclo_transmision():
                     "end_time": stream_info['scheduled_start'] + timedelta(hours=8)
                 }
 
-                # Iniciar transmisión en segundo plano
                 threading.Thread(
                     target=manejar_transmision,
                     args=(current_stream, youtube),
@@ -546,7 +527,6 @@ def ciclo_transmision():
                 next_stream_time = current_stream['end_time'] + timedelta(minutes=5)
             
             else:
-                # Esperar hasta que sea hora de la próxima transmisión
                 if datetime.utcnow() >= next_stream_time:
                     current_stream = None
                     logging.info("🔄 Preparando nueva transmisión...")
@@ -565,8 +545,6 @@ def health_check():
 if __name__ == "__main__":
     logging.info("🎬 Iniciando servicio de streaming...")
     
-    # Iniciar ciclo de transmisión en segundo plano
     threading.Thread(target=ciclo_transmision, daemon=True).start()
     
-    # Iniciar servidor web
     serve(app, host='0.0.0.0', port=10000)
