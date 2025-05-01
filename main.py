@@ -1,3 +1,4 @@
+
 import os
 import random
 import subprocess
@@ -113,6 +114,7 @@ class GestorContenido:
             if not all(key in datos for key in ["videos", "musica"]):
                 raise ValueError("Estructura JSON inválida")
             
+            # Descargar videos primero
             logging.info("🎥 Iniciando descarga de videos...")
             for i, video in enumerate(datos['videos'], 1):
                 logging.info(f"⬇️ Descargando video {i}/{len(datos['videos'])}: {video['name']}")
@@ -120,6 +122,7 @@ class GestorContenido:
                 if not video['local_path']:
                     raise Exception(f"Fallo al descargar video: {video['name']}")
             
+            # Luego descargar música
             logging.info("🎵 Iniciando descarga de música...")
             for j, cancion in enumerate(datos['musica'], 1):
                 logging.info(f"⬇️ Descargando canción {j}/{len(datos['musica'])}: {cancion['name']}")
@@ -191,7 +194,7 @@ class YouTubeManager:
                 body={
                   "snippet": {
                     "title": titulo,
-                    "description": "Sumérgete en un viaje de relajación y enfoque...",  # Descripción acortada
+                    "description": "Disfruta de nuestra selección musical las 24 horas del día. Música relajante, instrumental y ambiental para trabajar, estudiar, meditar o simplemente disfrutar. 🎵🎶\n\n📲 Síguenos: \n\nhttp://instagram.com/@desderelaxstation \n\nFacebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/ \n\nTikTok: https://www.tiktok.com/@desderelaxstation",
                     "scheduledStartTime": scheduled_start.isoformat() + "Z"
                   },
                   "status": {
@@ -211,10 +214,10 @@ class YouTubeManager:
                         "title": "Stream de ingesta principal"
                     },
                     "cdn": {
-                        "format": "720p",
+                        "format": "1080p",
                         "ingestionType": "rtmp",
-                        "resolution": "720p",
-                        "frameRate": "24fps"
+                        "resolution": "1080p",
+                        "frameRate": "30fps"
                     }
                 }
             ).execute()
@@ -341,23 +344,30 @@ def generar_titulo_musica(nombre_musica, categoria):
     f"Música relajante tipo Lofi Chill • {beneficio} mientras {actividad.lower()}s {emoji_act}",
     f"🌙 Sesión de Lofi Chill para {actividad} {emoji_act} • {beneficio}",
     f"Lofi Vibes para {actividad} {emoji_act} • {beneficio} incluido"
-]
+    ]
     
     return random.choice(plantillas)
 
 def crear_lista_reproduccion(gestor, duracion_horas=8):
+    """Crea una lista de reproducción aleatoria que durará aproximadamente duracion_horas"""
     canciones = [m for m in gestor.medios['musica'] if m['local_path']]
     if not canciones:
         raise Exception("No hay canciones disponibles")
     
+    # Mezclar las canciones aleatoriamente
     random.shuffle(canciones)
+    
+    # Calcular cuántas canciones necesitamos (estimando 4 minutos por canción)
     canciones_necesarias = int((duracion_horas * 60) / 4)
     
+    # Si no hay suficientes canciones, repetiremos algunas
     lista_reproduccion = []
     while len(lista_reproduccion) < canciones_necesarias:
         lista_reproduccion.extend(canciones)
     
+    # Ajustar al número exacto necesario
     lista_reproduccion = lista_reproduccion[:canciones_necesarias]
+    
     logging.info(f"🎶 Lista de reproducción creada con {len(lista_reproduccion)} canciones")
     return lista_reproduccion
 
@@ -370,70 +380,73 @@ def manejar_transmision(stream_data, youtube):
             logging.info(f"⏳ Esperando {espera_ffmpeg:.0f} segundos para iniciar FFmpeg...")
             time.sleep(espera_ffmpeg)
         
+        # Crear archivo de lista de reproducción para FFmpeg
         lista_archivo = os.path.join(stream_data['video']['local_path'] + ".txt")
         with open(lista_archivo, 'w') as f:
             for cancion in stream_data['playlist']:
                 f.write(f"file '{cancion['local_path']}'\n")
         
-        # FFmpeg optimizado para servidores de bajos recursos
+        # Comando FFmpeg optimizado para YouTube Live
+# Comando FFmpeg optimizado con loop de video
         cmd = [
     "ffmpeg",
-    "-loglevel", "error",       # Solo mostrar errores
-    "-rtbufsize", "100M",       # Buffer en tiempo real reducido
-    "-re",                      # Leer entrada a velocidad nativa
+    "-loglevel", "verbose",
+    "-rtbufsize", "100M",
+    "-re",
     "-f", "concat",
     "-safe", "0",
-    "-stream_loop", "-1",       # Loop infinito para audio
     "-i", lista_archivo,
-    
-    "-stream_loop", "-1",       # Loop infinito para video
-    "-i", video_path,
-    
-    # Configuración de Video
-    "-map", "0:a:0",            # Toma el primer audio de la playlist
-    "-map", "1:v:0",            # Toma el primer video del archivo
-    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1,fps=24",
-    
+    "-stream_loop", "-1",  # <--- Añadir esta línea para loop infinito
+    "-i", stream_data['video']['local_path'],
+    "-map", "0:a:0",
+    "-map", "1:v:0",
     "-c:v", "libx264",
-    "-preset", "superfast",     # Balance entre velocidad y calidad
+    "-preset", "ultrafast",
     "-tune", "zerolatency",
-    "-x264-params", "keyint=48:min-keyint=48:scenecut=0",
-    "-b:v", "2500k",            # Bitrate óptimo para 1080p bajo
+    "-x264-params", "keyint=60:min-keyint=60",
+    "-b:v", "2500k",
     "-maxrate", "3000k",
-    "-bufsize", "5000k",        # Buffer más pequeño para VPS limitado
-    "-r", "24",                 # Frame rate reducido
-    "-g", "48",                 # Grupo de imágenes cada 2 segundos
-    "-threads", "2",            # Usar solo 2 hilos para CPU limitada
-    
-    # Configuración de Audio
+    "-bufsize", "5000k",
+    "-r", "24",
+    "-g", "48",
+    "-pix_fmt", "yuv420p",
     "-c:a", "aac",
-    "-b:a", "96k",              # Audio de calidad aceptable
+    "-b:a", "96k",
     "-ar", "44100",
-    "-ac", "1",                 # Mono para reducir carga
-    
+    "-ac", "1",
     "-f", "flv",
-    "-flvflags", "no_duration_filesize",
-    stream_url
+    stream_data['rtmp']
 ]
+        
+        logging.info(f"🔧 Comando FFmpeg completo:\n{' '.join(cmd)}")
         
         proceso = subprocess.Popen(
             cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
         )
+        
+        # Hilo para leer la salida de FFmpeg en tiempo real
+        def leer_salida():
+            for linea in proceso.stdout:
+                logging.info(f"FFMPEG: {linea.strip()}")
+        
+        threading.Thread(target=leer_salida, daemon=True).start()
         
         logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
         
-        max_checks = 20
+        max_checks = 10
         stream_activo = False
         for _ in range(max_checks):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
             if estado == 'active':
+                logging.info("✅ Stream activo - Transicionando a testing")
                 if youtube.transicionar_estado(stream_data['broadcast_id'], 'testing'):
                     logging.info("🎬 Transmisión en VISTA PREVIA")
                     stream_activo = True
                 break
-            time.sleep(10)
+            time.sleep(5)
         
         if not stream_activo:
             logging.error("❌ Stream no se activó a tiempo")
@@ -446,11 +459,8 @@ def manejar_transmision(stream_data, youtube):
             logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
             time.sleep(tiempo_restante)
         
-        for _ in range(3):  # Reintentos para transición a live
-            if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
-                logging.info("🎥 Transmisión LIVE iniciada")
-                break
-            time.sleep(10)
+        if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
+            logging.info("🎥 Transmisión LIVE iniciada")
         else:
             raise Exception("No se pudo iniciar la transmisión")
         
@@ -476,12 +486,15 @@ def manejar_transmision(stream_data, youtube):
 def ciclo_transmision():
     logging.info("🔄 Iniciando ciclo de transmisión...")
     
+    # Primero cargar todos los medios
     gestor = GestorContenido()
     
+    # Verificar que tenemos contenido
     if not gestor.medios['videos'] or not gestor.medios['musica']:
         logging.error("❌ No hay suficientes medios para transmitir")
         return
     
+    # Luego autenticar con YouTube
     youtube = YouTubeManager()
     if not youtube.youtube:
         logging.error("❌ No se pudo autenticar con YouTube, reintentando en 1 minuto...")
@@ -493,17 +506,21 @@ def ciclo_transmision():
     while True:
         try:
             if not current_stream:
+                # Seleccionar video aleatorio
                 video = random.choice([v for v in gestor.medios['videos'] if v['local_path']])
                 logging.info(f"🎥 Video seleccionado: {video['name']}")
                 
+                # Crear playlist de música
                 playlist = crear_lista_reproduccion(gestor)
                 primera_cancion = playlist[0]
                 categoria = determinar_categoria(primera_cancion['name'])
                 logging.info(f"🎵 Primera canción: {primera_cancion['name']} ({categoria})")
                 
+                # Generar título atractivo
                 titulo = generar_titulo_musica(primera_cancion['name'], categoria)
                 logging.info(f"📝 Título generado: {titulo}")
                 
+                # Crear transmisión en YouTube
                 stream_info = youtube.crear_transmision(titulo, video['local_path'])
                 if not stream_info:
                     raise Exception("Error creación transmisión")
@@ -518,6 +535,7 @@ def ciclo_transmision():
                     "end_time": stream_info['scheduled_start'] + timedelta(hours=8)
                 }
 
+                # Iniciar transmisión en segundo plano
                 threading.Thread(
                     target=manejar_transmision,
                     args=(current_stream, youtube),
@@ -527,6 +545,7 @@ def ciclo_transmision():
                 next_stream_time = current_stream['end_time'] + timedelta(minutes=5)
             
             else:
+                # Esperar hasta que sea hora de la próxima transmisión
                 if datetime.utcnow() >= next_stream_time:
                     current_stream = None
                     logging.info("🔄 Preparando nueva transmisión...")
@@ -545,6 +564,8 @@ def health_check():
 if __name__ == "__main__":
     logging.info("🎬 Iniciando servicio de streaming...")
     
+    # Iniciar ciclo de transmisión en segundo plano
     threading.Thread(target=ciclo_transmision, daemon=True).start()
     
+    # Iniciar servidor web
     serve(app, host='0.0.0.0', port=10000)
