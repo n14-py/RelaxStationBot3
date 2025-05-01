@@ -400,21 +400,22 @@ def manejar_transmision(stream_data, youtube):
     "-i", stream_data['video']['local_path'],
     "-map", "0:a:0",
     "-map", "1:v:0",
+    "-ignore_unknown",  # <--- ¡Nuevo parámetro clave!
     "-c:v", "libx264",
-    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,format=yuv420p",  # Escalado forzado a 1080p
-    "-preset", "ultrafast",  # Prioriza CPU baja
+    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,format=yuv420p",
+    "-preset", "ultrafast",
     "-tune", "zerolatency",
-    "-x264-params", "keyint=60:min-keyint=60:scenecut=0:nal-hrd=cbr",  # CBR + GOP estricto
+    "-x264-params", "keyint=60:min-keyint=60:scenecut=0",
     "-b:v", "2500k",
-    "-maxrate", "2500k",  # Bitrate constante (evita picos)
-    "-bufsize", "3750k",  # 1.5x del maxrate (CBR)
-    "-r", "24",  # FPS fijos
-    "-g", "48",  # GOP = 2 segundos (24 fps * 2)
+    "-maxrate", "3000k",
+    "-bufsize", "5000k",
+    "-r", "24",
+    "-g", "48",
     "-pix_fmt", "yuv420p",
     "-c:a", "aac",
     "-b:a", "96k",
     "-ar", "44100",
-    "-ac", "1",  # Audio mono para ahorrar ancho de banda
+    "-ac", "1",
     "-f", "flv",
     stream_data['rtmp']
 ]
