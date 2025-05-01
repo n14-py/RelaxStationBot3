@@ -390,32 +390,32 @@ def manejar_transmision(stream_data, youtube):
 # Comando FFmpeg optimizado con loop de video
         cmd = [
     "ffmpeg",
-    "-loglevel", "error",  # Reducir verbosidad
-    "-rtbufsize", "100M",  # Buffer en tiempo real
+    "-loglevel", "error",
+    "-rtbufsize", "150M",  # Buffer aumentado
     "-re",
     "-f", "concat",
     "-safe", "0",
-    "-stream_loop", "-1",  # Loop infinito para la playlist
+    "-stream_loop", "-1",
     "-i", lista_archivo,
-    "-stream_loop", "-1",  # Loop infinito para el video
+    "-stream_loop", "-1",
     "-i", stream_data['video']['local_path'],
     "-map", "0:a:0",
     "-map", "1:v:0",
-    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1",
+    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1,format=yuv420p",
     "-c:v", "libx264",
     "-preset", "ultrafast",
     "-tune", "zerolatency",
-    "-x264-params", "keyint=48:min-keyint=48",
-    "-b:v", "3000k",  # Bitrate reducido
-    "-maxrate", "3000k",
-    "-bufsize", "6000k",
-    "-r", "24",  # Frame rate más bajo
+    "-x264-params", "keyint=48:min-keyint=48:no-scenecut=1",  # Desactiva detección de escenas
+    "-b:v", "3500k",  # Bitrate balanceado
+    "-maxrate", "3500k",
+    "-bufsize", "7000k",
+    "-r", "24",
     "-g", "48",
-    "-threads", "1",
-    "-flush_packets", "1",
+    "-threads", "2",  # Mejor uso de CPU
+    "-flush_packets", "0",  # Mejor sincronización
     "-c:a", "aac",
-    "-b:a", "96k",  # Bitrate de audio reducido
-    "-ar", "44100",
+    "-b:a", "128k",  # Mejor calidad de audio
+    "-ar", "48000",
     "-f", "flv",
     stream_data['rtmp']
 ]
@@ -437,7 +437,7 @@ def manejar_transmision(stream_data, youtube):
         
         logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
         
-        max_checks = 10
+        max_checks = 15
         stream_activo = False
         for _ in range(max_checks):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
@@ -447,7 +447,7 @@ def manejar_transmision(stream_data, youtube):
                     logging.info("🎬 Transmisión en VISTA PREVIA")
                     stream_activo = True
                 break
-            time.sleep(5)
+            time.sleep(15)
         
         if not stream_activo:
             logging.error("❌ Stream no se activó a tiempo")
