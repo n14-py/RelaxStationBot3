@@ -194,7 +194,7 @@ class YouTubeManager:
                 body={
                   "snippet": {
                     "title": titulo,
-                    "description": "Siguenos🎵🎶\n\n📲 Spotify: \n\n https://open.spotify.com/intl-es/artist/7J4Rf0Q97OcDjg3kmBXSRj Instagram: \n\nhttp://instagram.com/@desderelaxstation \n\nFacebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/ \n\nTikTok: https://www.tiktok.com/@desderelaxstation   \n \n🚫IGNORAR TAGS DesdeRelaxStation,música relajante, música para estudiar, música para dormir, música instrumental, música chill, música lofi, lofi chill, chill out, música para meditar, sonidos de naturaleza, música para concentración, música suave, música tranquila, música relajación, ambient music, música de fondo, música para trabajar, focus music, concentración, estudio, relajación profunda, calma, tranquilidad, música para yoga, meditación guiada, mindfulness, desde relax station, lo-fi beats, música para leer, música para spa, música zen, dormir mejor, descanso, paz interior, música para bebés, música piano, guitarra instrumental, jazz suave, bossanova, música acústica, ambiente relajante, sonidos mar, lluvia relajante, ruido blanco, sonidos de bosque, naturaleza, música chillhop, música electrónica suave, música ambiental, down tempo, soft beats, desde relax station, música indie chill, ethereal sounds, smooth jazz, relaxing vibes, calming music, peaceful sounds, sound healing, bienestar, bienestar emocional, sonidos binaurales, ondas alfa, ondas theta, spa music, masaje relajante, energía positiva, detox mental, balance interior, serenidad, creatividad, concentración plena, productividad, música para oficina, música coworking, relajación cuerpo mente, tranquilidad mental, descanso profundo, sueño reparador, lofi español, desde relax station, música para el alma, paz mental, inspiración, música motivacional suave, trabajar en casa, home office, ambiente chill, café música, coffee shop music, chill café, chill estudio, estudiar tranquilo, estudiar relajado, concentración máxima, música para pintar, música para escribir, arte y música, creatividad fluida, noche tranquila, tarde de estudio, sonidos de lluvia, sonidos de olas, sonidos de viento, naturaleza instrumental, desde relax station, chill vibes, good vibes, positive energy, relax music, focus beats, focus lofi, dreamy lofi, night lofi, chill piano, chill guitar, chill sax, soft melodies, cozy music, calm music, background music, sleep sounds, deep sleep, restful sleep, sleep music, study music, work music, meditation music, yoga music, mindfulness music, focus music, chillhop, lo-fi hip hop, lo-fi chill, chill beats, ambient beats, smooth beats, dreamy beats, relaxing beats, mellow beats, peaceful music, peaceful vibes, healing music, from relax station, calm vibes, chill moments, peaceful moments, soft piano, soft guitar, soft jazz, acoustic chill, acoustic instrumental, ocean sounds, rain sounds, forest sounds, nature sounds, soundscapes, calm melodies, peaceful melodies, healing melodies, binaural beats, alpha waves, theta waves, deep focus, mental clarity, emotional balance, stress relief, relaxation music, spa sounds, massage music, positive vibes, mental detox, inner peace, body mind relaxation, mental calm, deep rest, restorative sleep, spanish lofi, relaxing spanish music, smooth beats spanish, studying beats, sleeping beats, relaxing loops, chill loops, chillout music, cozy vibes, home vibes, cozy atmosphere, inspiration music, motivational chill, work from home music, home office vibes, chill environment, cafe vibes, coffee shop vibes, relaxed studying, relaxed work, maximum concentration, latin chill, latin lofi, instrumental beats, painting music, writing music, art music, creative flow, quiet night, study evening, rain ambience, ocean ambience, wind ambience, instrumental nature, desde relax station, peaceful night, tranquil evening, cozy night, chill evening, sunset music, sunrise music, lofi sunset, lofi sunrise, morning chill, evening chill, cozy morning, cozy evening, mindfulness meditation, relaxation session, gentle music, calming beats, smooth sounds, cozy sounds, quiet sounds, healing sounds, from relax station, sleep aid, insomnia relief, bedtime music, nap music, chill dreams, peaceful dreams, cozy dreams, dreamy sleep, serene sounds, gentle sounds, soft sounds, subtle beats, atmospheric music, dreamy atmosphere, relaxing atmosphere, lofi atmosphere, calm environment, peaceful environment, chill environment, relaxing environment, music therapy, sound therapy, stress-free music, unplug music, digital detox music, serenity, calmness, peace, tranquility, mindfulness, meditative state, productive state, creative state, artistic vibes, musical escape, sound escape, ambient escape, tranquil beats, harmonic beats, harmonic sounds, melodic sounds, soft rhythms, tranquil rhythms, soothing rhythms, gentle rhythms, relaxing rhythms, from relax station",
+                    "description": "Siguenos \n\n . 🎵🎶\n\n📲 Spotify: \n\n hhttps://open.spotify.com/intl-es/artist/7J4Rf0Q97OcDjg3kmBXSRj Instagram: \n\nhttp://instagram.com/@desderelaxstation \n\nFacebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/ \n\nTikTok: https://www.tiktok.com/@desderelaxstation   \n \n🚫IGNORAR TAGS DesdeRelaxStation,música relajante, música para estudiar, música para dormir, música instrumental, música chill, música lofi, lofi chill, chill out, música para meditar, sonidos de naturaleza, música para concentración, música suave, música tranquila, música relajación, ambient music, música de fondo, música para trabajar, focus music, concentración, estudio, relajación profunda, calma, tranquilidad, música para yoga, meditación guiada, mindfulness, desde relax station, lo-fi beats, música para leer, música para spa, música zen, dormir mejor, descanso, paz interior, música para bebés, música piano, guitarra instrumental, jazz suave, bossanova, música acústica, ambiente relajante, sonidos mar, lluvia relajante, ruido blanco, sonidos de bosque, naturaleza, música chillhop, música electrónica suave, música ambiental, down tempo, soft beats, desde relax station, música indie chill, ethereal sounds, smooth jazz, relaxing vibes, calming music, peaceful sounds, sound healing, bienestar, bienestar emocional, sonidos binaurales, ondas alfa, ondas theta, spa music, masaje relajante, energía positiva, detox mental, balance interior, serenidad, creatividad, concentración plena, productividad, música para oficina, música coworking, relajación cuerpo mente, tranquilidad mental, descanso profundo, sueño reparador, lofi español, desde relax station, música para el alma, paz mental, inspiración, música motivacional suave, trabajar en casa, home office, ambiente chill, café música, coffee shop music, chill café, chill estudio, estudiar tranquilo, estudiar relajado, concentración máxima, música para pintar, música para escribir, arte y música, creatividad fluida, noche tranquila, tarde de estudio, sonidos de lluvia, sonidos de olas, sonidos de viento, naturaleza instrumental, desde relax station, chill vibes, good vibes, positive energy, relax music, focus beats, focus lofi, dreamy lofi, night lofi, chill piano, chill guitar, chill sax, soft melodies, cozy music, calm music, background music, sleep sounds, deep sleep, restful sleep, sleep music, study music, work music, meditation music, yoga music, mindfulness music, focus music, chillhop, lo-fi hip hop, lo-fi chill, chill beats, ambient beats, smooth beats, dreamy beats, relaxing beats, mellow beats, peaceful music, peaceful vibes, healing music, from relax station, calm vibes, chill moments, peaceful moments, soft piano, soft guitar, soft jazz, acoustic chill, acoustic instrumental, ocean sounds, rain sounds, forest sounds, nature sounds, soundscapes, calm melodies, peaceful melodies, healing melodies, binaural beats, alpha waves, theta waves, deep focus, mental clarity, emotional balance, stress relief, relaxation music, spa sounds, massage music, positive vibes, mental detox, inner peace, body mind relaxation, mental calm, deep rest, restorative sleep, spanish lofi, relaxing spanish music, smooth beats spanish, studying beats, sleeping beats, relaxing loops, chill loops, chillout music, cozy vibes, home vibes, cozy atmosphere, inspiration music, motivational chill, work from home music, home office vibes, chill environment, cafe vibes, coffee shop vibes, relaxed studying, relaxed work, maximum concentration, latin chill, latin lofi, instrumental beats, painting music, writing music, art music, creative flow, quiet night, study evening, rain ambience, ocean ambience, wind ambience, instrumental nature, desde relax station, peaceful night, tranquil evening, cozy night, chill evening, sunset music, sunrise music, lofi sunset, lofi sunrise, morning chill, evening chill, cozy morning, cozy evening, mindfulness meditation, relaxation session, gentle music, calming beats, smooth sounds, cozy sounds, quiet sounds, healing sounds, from relax station, sleep aid, insomnia relief, bedtime music, nap music, chill dreams, peaceful dreams, cozy dreams, dreamy sleep, serene sounds, gentle sounds, soft sounds, subtle beats, atmospheric music, dreamy atmosphere, relaxing atmosphere, lofi atmosphere, calm environment, peaceful environment, chill environment, relaxing environment, music therapy, sound therapy, stress-free music, unplug music, digital detox music, serenity, calmness, peace, tranquility, mindfulness, meditative state, productive state, creative state, artistic vibes, musical escape, sound escape, ambient escape, tranquil beats, harmonic beats, harmonic sounds, melodic sounds, soft rhythms, tranquil rhythms, soothing rhythms, gentle rhythms, relaxing rhythms, from relax station",
                     "scheduledStartTime": scheduled_start.isoformat() + "Z"
                   },
                   "status": {
@@ -386,12 +386,12 @@ def manejar_transmision(stream_data, youtube):
             for cancion in stream_data['playlist']:
                 f.write(f"file '{cancion['local_path']}'\n")
         
-   
+        # Comando FFmpeg optimizado para YouTube Live
+# Comando FFmpeg optimizado con loop de video
         cmd = [
     "ffmpeg",
     "-loglevel", "verbose",
-    "-rtbufsize", "250M",  # Aumenta buffer de entrada
-    "-thread_queue_size", "1024",  # Previene underruns de audio
+    "-rtbufsize", "250M",
     "-re",
     "-f", "concat",
     "-safe", "0",
@@ -400,31 +400,23 @@ def manejar_transmision(stream_data, youtube):
     "-i", stream_data['video']['local_path'],
     "-map", "0:a:0",
     "-map", "1:v:0",
-
-    # Configuración crítica para 1080p estable
+    "-ignore_unknown",  # <--- ¡Nuevo parámetro clave!
     "-c:v", "libx264",
-    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos",  # Mejor escalado
-    "-preset", "veryfast",  # Balance perfecto calidad/CPU
+    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,format=yuv420p",
+    "-preset", "ultrafast",
     "-tune", "zerolatency",
-    "-x264-params", "keyint=48:min-keyint=48:rc-lookahead=30:vbv-maxrate=3000:vbv-bufsize=6000",
-    "-b:v", "3000k",
-    "-maxrate", "3500k",
-    "-bufsize", "7000k",  # Búfer 2x el maxrate
+    "-x264-params", "keyint=60:min-keyint=60:scenecut=0",
+    "-b:v", "2500k",
+    "-maxrate", "3000k",
+    "-bufsize", "6000k",
     "-r", "24",
     "-g", "48",
     "-pix_fmt", "yuv420p",
-    
-    # Audio optimizado
     "-c:a", "aac",
     "-b:a", "96k",
     "-ar", "44100",
     "-ac", "1",
-    
-    # Flags mágicos para streaming estable
-    "-flush_packets", "0",
     "-f", "flv",
-    "-flvflags", "no_duration_filesize+autocrlf",
-    "-muxdelay", "0.5",  # Buffer de salida controlado
     stream_data['rtmp']
 ]
         
