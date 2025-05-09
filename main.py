@@ -386,49 +386,45 @@ def manejar_transmision(stream_data, youtube):
             for cancion in stream_data['playlist']:
                 f.write(f"file '{cancion['local_path']}'\n")
         
-        # Comando FFmpeg optimizado para YouTube Live
-# Comando FFmpeg optimizado con loop de video
+   
         cmd = [
     "ffmpeg",
     "-loglevel", "verbose",
-    "-rtbufsize", "200M",  # Aumentado para mejor buffering de entrada
+    "-rtbufsize", "250M",  # Aumenta buffer de entrada
+    "-thread_queue_size", "1024",  # Previene underruns de audio
     "-re",
     "-f", "concat",
     "-safe", "0",
     "-i", lista_archivo,
     "-stream_loop", "-1",
     "-i", stream_data['video']['local_path'],
-    
-    # Mapeo de streams
     "-map", "0:a:0",
     "-map", "1:v:0",
-    
-    # Configuración de video
+
+    # Configuración crítica para 1080p estable
     "-c:v", "libx264",
-    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,format=yuv420p",
-    "-preset", "veryfast",  # Mejor balance calidad/rendimiento
+    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos",  # Mejor escalado
+    "-preset", "veryfast",  # Balance perfecto calidad/CPU
     "-tune", "zerolatency",
-    "-x264-params", "keyint=48:min-keyint=48:scenecut=0",  # Keyframe cada 2 segundos (24fps*2)
-    "-b:v", "2500k",
-    "-maxrate", "3000k",
-    "-bufsize", "6000k",  # Aumentado para mejor manejo de bitrate
+    "-x264-params", "keyint=48:min-keyint=48:rc-lookahead=30:vbv-maxrate=3000:vbv-bufsize=6000",
+    "-b:v", "3000k",
+    "-maxrate", "3500k",
+    "-bufsize", "7000k",  # Búfer 2x el maxrate
     "-r", "24",
-    "-g", "48",  # Grupo de GOP alineado con keyint
+    "-g", "48",
     "-pix_fmt", "yuv420p",
     
-    # Configuración de audio
+    # Audio optimizado
     "-c:a", "aac",
-    "-b:a", "128k",  # Mejor calidad de audio
+    "-b:a", "96k",
     "-ar", "44100",
     "-ac", "1",
     
-    # Buffer de salida
-    "-muxdelay", "10",  # Buffer inicial de 10 segundos
-    "-muxpreload", "10",  # Precarga de buffer
-    
-    # Configuración de salida
+    # Flags mágicos para streaming estable
+    "-flush_packets", "0",
     "-f", "flv",
-    "-flvflags", "no_buffer",  # Reduce buffering de salida
+    "-flvflags", "no_duration_filesize+autocrlf",
+    "-muxdelay", "0.5",  # Buffer de salida controlado
     stream_data['rtmp']
 ]
         
