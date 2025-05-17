@@ -155,7 +155,8 @@ class GestorContenido:
             # Filtrar música que no se pudo descargar
             datos['musica'] = [m for m in datos['musica'] if m['local_path']]
             
-            logging.info(f"✅ Medios descargados: {len(datos['videos']} videos y {len(datos['musica'])} canciones")
+            logging.info(f"✅ Medios descargados: {len(datos['videos'])} videos y {len(datos['musica'])} canciones")
+
             return datos
         except Exception as e:
             logging.error(f"❌ Error cargando medios: {str(e)}")
