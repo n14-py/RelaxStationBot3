@@ -42,6 +42,85 @@ PALABRAS_CLAVE = {
     'lofi': ['lofi', 'lowfi', 'chillhop', 'chillout', 'studybeats']
 }
 
+class MediaBuffer:
+    def __init__(self, buffer_dir="./stream_buffer"):
+        self.buffer_dir = os.path.abspath(buffer_dir)
+        os.makedirs(self.buffer_dir, exist_ok=True)
+        self.buffer_files = []
+        self.current_index = 0
+        self.buffer_size = 5  # Minutos de buffer
+        self.segment_duration = 30  # Duración de cada segmento en segundos
+
+    def create_buffer_segments(self, video_path, audio_paths):
+        """Crea segmentos de video+audio para el buffer"""
+        try:
+            # Limpiar buffer anterior
+            for f in os.listdir(self.buffer_dir):
+                os.remove(os.path.join(self.buffer_dir, f))
+            self.buffer_files = []
+            
+            # Crear lista de reproducción temporal para el audio
+            audio_list = os.path.join(self.buffer_dir, "audio_list.txt")
+            with open(audio_list, 'w') as f:
+                for audio in audio_paths:
+                    f.write(f"file '{audio}'\n")
+            
+            # Generar segmentos bufferizados
+            for i in range(self.buffer_size * 2):  # 2 segmentos por minuto
+                output_file = os.path.join(self.buffer_dir, f"buffer_{i}.flv")
+                
+                # Calcular punto de inicio aleatorio en el video (para variedad)
+                start_time = random.randint(0, 30)
+                
+                cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-ss", str(start_time),
+                    "-i", video_path,
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", audio_list,
+                    "-t", str(self.segment_duration),
+                    "-map", "0:v:0",
+                    "-map", "1:a:0",
+                    "-c:v", "libx264",
+                    "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
+                    "-preset", "ultrafast",
+                    "-tune", "zerolatency",
+                    "-x264-params", "keyint=60:min-keyint=60:scenecut=0",
+                    "-b:v", "1500k",
+                    "-maxrate", "1500k",
+                    "-bufsize", "3000k",
+                    "-r", "24",
+                    "-g", "48",
+                    "-pix_fmt", "yuv420p",
+                    "-c:a", "aac",
+                    "-b:a", "96k",
+                    "-ar", "44100",
+                    "-ac", "1",
+                    "-f", "flv",
+                    output_file
+                ]
+                
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.buffer_files.append(output_file)
+                logging.info(f"🔄 Generado segmento de buffer {i+1}/{self.buffer_size*2}")
+            
+            os.remove(audio_list)
+            return True
+        except Exception as e:
+            logging.error(f"Error creando segmentos de buffer: {str(e)}")
+            return False
+
+    def get_next_segment(self):
+        """Obtiene el siguiente segmento del buffer (round-robin)"""
+        if not self.buffer_files:
+            return None
+            
+        segment = self.buffer_files[self.current_index]
+        self.current_index = (self.current_index + 1) % len(self.buffer_files)
+        return segment
+
 class GestorContenido:
     def __init__(self):
         self.media_cache_dir = os.path.abspath("./media_cache")
@@ -49,6 +128,7 @@ class GestorContenido:
         self.medios = self.cargar_medios()
         self.videos_usados = []
         self.reiniciar_videos_usados()
+        self.media_buffer = MediaBuffer()
     
     def reiniciar_videos_usados(self):
         if len(self.videos_usados) >= len(self.medios['videos']):
@@ -156,7 +236,6 @@ class GestorContenido:
             datos['musica'] = [m for m in datos['musica'] if m['local_path']]
             
             logging.info(f"✅ Medios descargados: {len(datos['videos'])} videos y {len(datos['musica'])} canciones")
-
             return datos
         except Exception as e:
             logging.error(f"❌ Error cargando medios: {str(e)}")
@@ -180,6 +259,11 @@ class GestorContenido:
         video = random.choice(videos_disponibles)
         self.videos_usados.append(video['name'])
         return video
+
+    def preparar_buffer_transmision(self, video, playlist):
+        """Prepara segmentos bufferizados para transmisión fluida"""
+        audio_paths = [c['local_path'] for c in playlist]
+        return self.media_buffer.create_buffer_segments(video['local_path'], audio_paths)
 
 class YouTubeManager:
     def __init__(self):
@@ -214,7 +298,7 @@ class YouTubeManager:
             output_path = "/tmp/miniatura_nueva.jpg"
             subprocess.run([
                 "ffmpeg",
-                "-y", "-ss", "00:00:05",  # Tomar frame a los 5 segundos
+                "-y", "-ss", "00:00:05",
                 "-i", video_path,
                 "-vframes", "1",
                 "-q:v", "2",
@@ -259,9 +343,9 @@ class YouTubeManager:
                         "title": "Stream de ingesta principal"
                     },
                     "cdn": {
-                        "format": "1080p",
+                        "format": "720p",  # Cambiado a 720p para mejor rendimiento
                         "ingestionType": "rtmp",
-                        "resolution": "1080p",
+                        "resolution": "720p",
                         "frameRate": "30fps"
                     }
                 }
@@ -414,8 +498,12 @@ def crear_lista_reproduccion(gestor, duracion_horas=8):
     logging.info(f"🎶 Lista de reproducción creada con {len(lista_reproduccion)} canciones")
     return lista_reproduccion
 
-def manejar_transmision(stream_data, youtube):
+def manejar_transmision(stream_data, youtube, gestor):
     try:
+        # Preparar buffer de transmisión
+        if not gestor.preparar_buffer_transmision(stream_data['video'], stream_data['playlist']):
+            raise Exception("No se pudo preparar el buffer de transmisión")
+        
         tiempo_inicio_ffmpeg = stream_data['start_time'] - timedelta(minutes=1)
         espera_ffmpeg = (tiempo_inicio_ffmpeg - datetime.utcnow()).total_seconds()
         
@@ -423,56 +511,32 @@ def manejar_transmision(stream_data, youtube):
             logging.info(f"⏳ Esperando {espera_ffmpeg:.0f} segundos para iniciar FFmpeg...")
             time.sleep(espera_ffmpeg)
         
-        # Crear archivo de lista de reproducción para FFmpeg
-        lista_archivo = os.path.join("/tmp", f"playlist_{stream_data['broadcast_id']}.txt")
-        with open(lista_archivo, 'w') as f:
-            for cancion in stream_data['playlist']:
-                f.write(f"file '{cancion['local_path']}'\n")
-        
-        # Comando FFmpeg optimizado para el plan de $7 de Render
+        # Comando FFmpeg optimizado para transmisión por segmentos
         cmd = [
             "ffmpeg",
-            "-loglevel", "warning",  # Reducir verbosidad
-            "-thread_queue_size", "512",  # Buffer más grande
+            "-loglevel", "warning",
             "-re",
             "-f", "concat",
             "-safe", "0",
-            "-i", lista_archivo,
-            "-stream_loop", "-1",
-            "-i", stream_data['video']['local_path'],
-            "-map", "0:a:0",
-            "-map", "1:v:0",
-            "-c:v", "libx264",
-            "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p",  # Escalar a 720p para ahorrar recursos
-            "-preset", "ultrafast",
-            "-tune", "zerolatency",
-            "-x264-params", "keyint=60:min-keyint=60:scenecut=0",
-            "-b:v", "1500k",  # Bitrate reducido para 720p
-            "-maxrate", "2000k",
-            "-bufsize", "4000k",
-            "-r", "24",  # Reducir framerate
-            "-g", "48",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "aac",
-            "-b:a", "96k",
-            "-ar", "44100",
-            "-ac", "1",
+            "-i", "-",  # Leer lista de archivos desde stdin
+            "-c", "copy",
             "-f", "flv",
             stream_data['rtmp']
         ]
         
-        logging.info(f"🔧 Iniciando FFmpeg con configuración optimizada para Render")
+        logging.info("🔧 Iniciando FFmpeg con transmisión por segmentos bufferizados")
         
-        # Configurar proceso FFmpeg con buffers adecuados
+        # Configurar proceso FFmpeg
         proceso = subprocess.Popen(
             cmd,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
             bufsize=1
         )
         
-        # Hilo para leer la salida de FFmpeg en tiempo real
+        # Hilo para leer la salida de FFmpeg
         def leer_salida():
             for linea in proceso.stdout:
                 if "error" in linea.lower() or "fail" in linea.lower():
@@ -482,10 +546,36 @@ def manejar_transmision(stream_data, youtube):
         
         threading.Thread(target=leer_salida, daemon=True).start()
         
+        # Enviar segmentos al FFmpeg
+        def enviar_segmentos():
+            try:
+                while True:
+                    segmento = gestor.media_buffer.get_next_segment()
+                    if not segmento:
+                        break
+                    
+                    # Enviar el segmento a FFmpeg
+                    with open(segmento, 'rb') as f:
+                        while True:
+                            chunk = f.read(4096)
+                            if not chunk:
+                                break
+                            proceso.stdin.write(chunk)
+                    
+                    logging.debug(f"📦 Segmento enviado: {os.path.basename(segmento)}")
+                    time.sleep(0.1)  # Pequeña pausa entre segmentos
+            
+            except Exception as e:
+                logging.error(f"Error enviando segmentos: {str(e)}")
+            finally:
+                proceso.stdin.close()
+        
+        threading.Thread(target=enviar_segmentos, daemon=True).start()
+        
         logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
         
         # Esperar a que el stream esté activo
-        max_checks = 15  # Más intentos para conexiones lentas
+        max_checks = 15
         stream_activo = False
         for i in range(max_checks):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
@@ -501,10 +591,6 @@ def manejar_transmision(stream_data, youtube):
         if not stream_activo:
             logging.error("❌ Stream no se activó a tiempo")
             proceso.terminate()
-            try:
-                os.remove(lista_archivo)
-            except:
-                pass
             return
         
         # Esperar hasta la hora programada
@@ -526,6 +612,7 @@ def manejar_transmision(stream_data, youtube):
             if proceso.poll() is not None:
                 logging.warning("⚡ FFmpeg se detuvo, reconectando...")
                 proceso = subprocess.Popen(cmd)
+                threading.Thread(target=enviar_segmentos, daemon=True).start()
                 ultimo_check = datetime.utcnow()
             
             # Verificar estado periódicamente
@@ -538,10 +625,6 @@ def manejar_transmision(stream_data, youtube):
         
         # Finalizar transmisión
         proceso.terminate()
-        try:
-            os.remove(lista_archivo)
-        except:
-            pass
         
         if youtube.finalizar_transmision(stream_data['broadcast_id']):
             logging.info("🛑 Transmisión finalizada y archivada correctamente")
@@ -551,11 +634,6 @@ def manejar_transmision(stream_data, youtube):
     except Exception as e:
         logging.error(f"Error en hilo de transmisión: {str(e)}")
         youtube.finalizar_transmision(stream_data['broadcast_id'])
-        if 'lista_archivo' in locals():
-            try:
-                os.remove(lista_archivo)
-            except:
-                pass
 
 def ciclo_transmision():
     logging.info("🔄 Iniciando ciclo de transmisión...")
@@ -613,7 +691,7 @@ def ciclo_transmision():
                 # Iniciar transmisión en segundo plano
                 threading.Thread(
                     target=manejar_transmision,
-                    args=(current_stream, youtube),
+                    args=(current_stream, youtube, gestor),
                     daemon=True
                 ).start()
                 
