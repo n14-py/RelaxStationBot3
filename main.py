@@ -1,3 +1,4 @@
+
 import os
 import random
 import subprocess
@@ -13,7 +14,6 @@ from flask import Flask
 from waitress import serve
 from urllib.parse import urlparse
 import threading
-import json
 
 app = Flask(__name__)
 
@@ -33,91 +33,18 @@ YOUTUBE_CREDS = {
 }
 
 PALABRAS_CLAVE = {
-    'relax': ['relax', 'calm', 'peaceful', 'tranquil', 'serene'],
-    'instrumental': ['instrumental', 'piano', 'guitar', 'violin', 'cello'],
-    'ambient': ['ambient', 'atmospheric', 'space', 'nature', 'rain'],
-    'jazz': ['jazz', 'smooth', 'blues', 'bossa', 'lounge'],
-    'classical': ['classical', 'orchestra', 'symphony', 'mozart', 'beethoven'],
-    'lofi': ['lofi', 'lowfi', 'chillhop', 'chillout', 'studybeats']
+    'relax': ['relax', 'calm', 'peaceful'],
+    'instrumental': ['instrumental', 'piano', 'guitar'],
+    'ambient': ['ambient', 'atmospheric', 'space'],
+    'jazz': ['jazz', 'smooth', 'blues'],
+    'classical': ['classical', 'orchestra', 'symphony']
 }
-
-class StreamBuffer:
-    def __init__(self):
-        self.buffer_dir = os.path.abspath("./stream_buffer")
-        os.makedirs(self.buffer_dir, exist_ok=True)
-        self.buffer_file = None
-
-    def create_buffer(self, video_path, audio_paths, duration_min=10):
-        """Crea un archivo de buffer de 10 minutos para transmisión estable"""
-        try:
-            # Limpiar buffer anterior
-            for f in os.listdir(self.buffer_dir):
-                os.remove(os.path.join(self.buffer_dir, f))
-            
-            # Crear lista de reproducción temporal
-            audio_list = os.path.join(self.buffer_dir, "audio_list.txt")
-            with open(audio_list, 'w') as f:
-                for audio in audio_paths:
-                    f.write(f"file '{audio}'\n")
-            
-            # Archivo de buffer final
-            self.buffer_file = os.path.join(self.buffer_dir, "stream_buffer.flv")
-            
-            # Calcular duración en segundos (10 minutos)
-            duration_sec = duration_min * 60
-            
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-stream_loop", "-1",
-                "-i", video_path,
-                "-f", "concat",
-                "-safe", "0",
-                "-i", audio_list,
-                "-t", str(duration_sec),
-                "-map", "0:v:0",
-                "-map", "1:a:0",
-                "-c:v", "libx264",
-                "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
-                "-preset", "ultrafast",
-                "-tune", "zerolatency",
-                "-x264-params", "keyint=60:min-keyint=60:scenecut=0",
-                "-b:v", "1500k",
-                "-maxrate", "1500k",
-                "-bufsize", "3000k",
-                "-r", "24",
-                "-g", "48",
-                "-pix_fmt", "yuv420p",
-                "-c:a", "aac",
-                "-b:a", "96k",
-                "-ar", "44100",
-                "-ac", "1",
-                "-f", "flv",
-                self.buffer_file
-            ]
-            
-            logging.info("🔄 Creando buffer de 10 minutos...")
-            subprocess.run(cmd, check=True)
-            logging.info("✅ Buffer creado exitosamente")
-            
-            os.remove(audio_list)
-            return True
-            
-        except Exception as e:
-            logging.error(f"Error creando buffer: {str(e)}")
-            return False
 
 class GestorContenido:
     def __init__(self):
         self.media_cache_dir = os.path.abspath("./media_cache")
         os.makedirs(self.media_cache_dir, exist_ok=True)
         self.medios = self.cargar_medios()
-        self.videos_usados = []
-        self.buffer = StreamBuffer()
-    
-    def reiniciar_videos_usados(self):
-        if len(self.videos_usados) >= len(self.medios['videos']):
-            self.videos_usados = []
     
     def obtener_extension_segura(self, url):
         try:
@@ -187,63 +114,27 @@ class GestorContenido:
             if not all(key in datos for key in ["videos", "musica"]):
                 raise ValueError("Estructura JSON inválida")
             
-            # Filtrar videos válidos
-            datos['videos'] = [v for v in datos['videos'] if v.get('url') and v.get('name')]
-            
             # Descargar videos primero
             logging.info("🎥 Iniciando descarga de videos...")
             for i, video in enumerate(datos['videos'], 1):
-                try:
-                    logging.info(f"⬇️ Descargando video {i}/{len(datos['videos'])}: {video['name']}")
-                    video['local_path'] = self.descargar_video(video['url'])
-                    if not video['local_path']:
-                        raise Exception(f"Fallo al descargar video: {video['name']}")
-                except Exception as e:
-                    logging.error(f"Error con video {video['name']}: {str(e)}")
-                    video['local_path'] = None
-            
-            # Filtrar videos que no se pudieron descargar
-            datos['videos'] = [v for v in datos['videos'] if v['local_path']]
+                logging.info(f"⬇️ Descargando video {i}/{len(datos['videos'])}: {video['name']}")
+                video['local_path'] = self.descargar_video(video['url'])
+                if not video['local_path']:
+                    raise Exception(f"Fallo al descargar video: {video['name']}")
             
             # Luego descargar música
             logging.info("🎵 Iniciando descarga de música...")
             for j, cancion in enumerate(datos['musica'], 1):
-                try:
-                    logging.info(f"⬇️ Descargando canción {j}/{len(datos['musica'])}: {cancion['name']}")
-                    cancion['local_path'] = self.descargar_audio(cancion['url'])
-                    if not cancion['local_path']:
-                        raise Exception(f"Fallo al descargar canción: {cancion['name']}")
-                except Exception as e:
-                    logging.error(f"Error con canción {cancion['name']}: {str(e)}")
-                    cancion['local_path'] = None
+                logging.info(f"⬇️ Descargando canción {j}/{len(datos['musica'])}: {cancion['name']}")
+                cancion['local_path'] = self.descargar_audio(cancion['url'])
+                if not cancion['local_path']:
+                    raise Exception(f"Fallo al descargar canción: {cancion['name']}")
             
-            # Filtrar música que no se pudo descargar
-            datos['musica'] = [m for m in datos['musica'] if m['local_path']]
-            
-            logging.info(f"✅ Medios descargados: {len(datos['videos'])} videos y {len(datos['musica'])} canciones")
+            logging.info("✅ Todos los medios descargados y verificados")
             return datos
         except Exception as e:
             logging.error(f"❌ Error cargando medios: {str(e)}")
             return {"videos": [], "musica": []}
-    
-    def seleccionar_video_aleatorio(self):
-        self.reiniciar_videos_usados()
-        videos_disponibles = [
-            v for v in self.medios['videos'] 
-            if v['local_path'] and v['name'] not in self.videos_usados
-        ]
-        
-        if not videos_disponibles:
-            logging.warning("⚠️ No hay videos nuevos disponibles, reiniciando selección")
-            self.videos_usados = []
-            videos_disponibles = [v for v in self.medios['videos'] if v['local_path']]
-        
-        if not videos_disponibles:
-            raise Exception("No hay videos disponibles para transmitir")
-        
-        video = random.choice(videos_disponibles)
-        self.videos_usados.append(video['name'])
-        return video
 
 class YouTubeManager:
     def __init__(self):
@@ -278,11 +169,11 @@ class YouTubeManager:
             output_path = "/tmp/miniatura_nueva.jpg"
             subprocess.run([
                 "ffmpeg",
-                "-y", "-ss", "00:00:05",
+                "-y", "-ss", "00:00:10",
                 "-i", video_path,
                 "-vframes", "1",
                 "-q:v", "2",
-                "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                "-vf", "scale=1280:720,setsar=1",
                 output_path
             ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return output_path
@@ -303,7 +194,7 @@ class YouTubeManager:
                 body={
                   "snippet": {
                     "title": titulo,
-                    "description": "Síguenos en nuestras redes sociales:\n\n🎵 Spotify: https://open.spotify.com/intl-es/artist/7J4Rf0Q97OcDjg3kmBXSRj\n📷 Instagram: http://instagram.com/@desderelaxstation\n👍 Facebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/\n🎶 TikTok: https://www.tiktok.com/@desderelaxstation\n\nMúsica relajante para estudiar, trabajar, meditar o dormir. Transmisión en vivo 24/7 con los mejores sonidos ambientales y música instrumental.",
+                    "description": "Siguenos \n\n . 🎵🎶\n\n📲 Spotify: \n\n hhttps://open.spotify.com/intl-es/artist/7J4Rf0Q97OcDjg3kmBXSRj Instagram: \n\nhttp://instagram.com/@desderelaxstation \n\nFacebook: https://www.facebook.com/people/Desde-Relax-Station/61574709615178/ \n\nTikTok: https://www.tiktok.com/@desderelaxstation   \n \n🚫IGNORAR TAGS DesdeRelaxStation,música relajante, música para estudiar, música para dormir, música instrumental, música chill, música lofi, lofi chill, chill out, música para meditar, sonidos de naturaleza, música para concentración, música suave, música tranquila, música relajación, ambient music, música de fondo, música para trabajar, focus music, concentración, estudio, relajación profunda, calma, tranquilidad, música para yoga, meditación guiada, mindfulness, desde relax station, lo-fi beats, música para leer, música para spa, música zen, dormir mejor, descanso, paz interior, música para bebés, música piano, guitarra instrumental, jazz suave, bossanova, música acústica, ambiente relajante, sonidos mar, lluvia relajante, ruido blanco, sonidos de bosque, naturaleza, música chillhop, música electrónica suave, música ambiental, down tempo, soft beats, desde relax station, música indie chill, ethereal sounds, smooth jazz, relaxing vibes, calming music, peaceful sounds, sound healing, bienestar, bienestar emocional, sonidos binaurales, ondas alfa, ondas theta, spa music, masaje relajante, energía positiva, detox mental, balance interior, serenidad, creatividad, concentración plena, productividad, música para oficina, música coworking, relajación cuerpo mente, tranquilidad mental, descanso profundo, sueño reparador, lofi español, desde relax station, música para el alma, paz mental, inspiración, música motivacional suave, trabajar en casa, home office, ambiente chill, café música, coffee shop music, chill café, chill estudio, estudiar tranquilo, estudiar relajado, concentración máxima, música para pintar, música para escribir, arte y música, creatividad fluida, noche tranquila, tarde de estudio, sonidos de lluvia, sonidos de olas, sonidos de viento, naturaleza instrumental, desde relax station, chill vibes, good vibes, positive energy, relax music, focus beats, focus lofi, dreamy lofi, night lofi, chill piano, chill guitar, chill sax, soft melodies, cozy music, calm music, background music, sleep sounds, deep sleep, restful sleep, sleep music, study music, work music, meditation music, yoga music, mindfulness music, focus music, chillhop, lo-fi hip hop, lo-fi chill, chill beats, ambient beats, smooth beats, dreamy beats, relaxing beats, mellow beats, peaceful music, peaceful vibes, healing music, from relax station, calm vibes, chill moments, peaceful moments, soft piano, soft guitar, soft jazz, acoustic chill, acoustic instrumental, ocean sounds, rain sounds, forest sounds, nature sounds, soundscapes, calm melodies, peaceful melodies, healing melodies, binaural beats, alpha waves, theta waves, deep focus, mental clarity, emotional balance, stress relief, relaxation music, spa sounds, massage music, positive vibes, mental detox, inner peace, body mind relaxation, mental calm, deep rest, restorative sleep, spanish lofi, relaxing spanish music, smooth beats spanish, studying beats, sleeping beats, relaxing loops, chill loops, chillout music, cozy vibes, home vibes, cozy atmosphere, inspiration music, motivational chill, work from home music, home office vibes, chill environment, cafe vibes, coffee shop vibes, relaxed studying, relaxed work, maximum concentration, latin chill, latin lofi, instrumental beats, painting music, writing music, art music, creative flow, quiet night, study evening, rain ambience, ocean ambience, wind ambience, instrumental nature, desde relax station, peaceful night, tranquil evening, cozy night, chill evening, sunset music, sunrise music, lofi sunset, lofi sunrise, morning chill, evening chill, cozy morning, cozy evening, mindfulness meditation, relaxation session, gentle music, calming beats, smooth sounds, cozy sounds, quiet sounds, healing sounds, from relax station, sleep aid, insomnia relief, bedtime music, nap music, chill dreams, peaceful dreams, cozy dreams, dreamy sleep, serene sounds, gentle sounds, soft sounds, subtle beats, atmospheric music, dreamy atmosphere, relaxing atmosphere, lofi atmosphere, calm environment, peaceful environment, chill environment, relaxing environment, music therapy, sound therapy, stress-free music, unplug music, digital detox music, serenity, calmness, peace, tranquility, mindfulness, meditative state, productive state, creative state, artistic vibes, musical escape, sound escape, ambient escape, tranquil beats, harmonic beats, harmonic sounds, melodic sounds, soft rhythms, tranquil rhythms, soothing rhythms, gentle rhythms, relaxing rhythms, from relax station",
                     "scheduledStartTime": scheduled_start.isoformat() + "Z"
                   },
                   "status": {
@@ -323,9 +214,9 @@ class YouTubeManager:
                         "title": "Stream de ingesta principal"
                     },
                     "cdn": {
-                        "format": "720p",
+                        "format": "1080p",
                         "ingestionType": "rtmp",
-                        "resolution": "720p",
+                        "resolution": "1080p",
                         "frameRate": "30fps"
                     }
                 }
@@ -347,14 +238,10 @@ class YouTubeManager:
                         videoId=broadcast['id'],
                         media_body=thumbnail_path
                     ).execute()
-                    logging.info("🖼️ Miniatura subida correctamente")
                 except Exception as e:
                     logging.error(f"Error subiendo miniatura: {str(e)}")
                 finally:
-                    try:
-                        os.remove(thumbnail_path)
-                    except:
-                        pass
+                    os.remove(thumbnail_path)
             
             logging.info(f"📡 Transmisión programada para {scheduled_start}")
             return {
@@ -419,11 +306,17 @@ def determinar_categoria(nombre_musica):
     
     for palabra in nombre.split():
         for categoria, palabras in PALABRAS_CLAVE.items():
-            if any(p in palabra for p in palabras):
+            if palabra in palabras:
                 contador[categoria] += 1
                 
     max_categoria = max(contador, key=contador.get)
     return max_categoria if contador[max_categoria] > 0 else random.choice(list(PALABRAS_CLAVE.keys()))
+
+def seleccionar_musica_aleatoria(gestor):
+    canciones_disponibles = [m for m in gestor.medios['musica'] if m['local_path']]
+    if not canciones_disponibles:
+        raise Exception("No hay música disponible para transmitir")
+    return random.choice(canciones_disponibles)
 
 def generar_titulo_musica(nombre_musica, categoria):
     actividades = [
@@ -442,15 +335,15 @@ def generar_titulo_musica(nombre_musica, categoria):
     beneficio = random.choice(beneficios)
     
     plantillas = [
-        f"Lofi Chill {categoria.capitalize()} • Ideal para {actividad} {emoji_act} | {beneficio}",
-        f"Música suave para {actividad} {emoji_act} • {beneficio} garantizado",
-        f"Ambiente Lofi para {actividad} {emoji_act} • {beneficio} y más",
-        f"🎵 Lofi Chill para {actividad} {emoji_act} • {beneficio}",
-        f"Tus momentos de {actividad} {emoji_act} con música Lofi {categoria.capitalize()} • {beneficio}",
-        f"Lofi Chill Daily • {actividad} {emoji_act} y {beneficio.lower()}",
-        f"Música relajante tipo Lofi Chill • {beneficio} mientras {actividad.lower()}s {emoji_act}",
-        f"🌙 Sesión de Lofi Chill para {actividad} {emoji_act} • {beneficio}",
-        f"Lofi Vibes para {actividad} {emoji_act} • {beneficio} incluido"
+    f"Lofi Chill {categoria.capitalize()} • Ideal para {actividad} {emoji_act} | {beneficio}",
+    f"Música suave para {actividad} {emoji_act} • {beneficio} garantizado",
+    f"Ambiente Lofi para {actividad} {emoji_act} • {beneficio} y más",
+    f"🎵 Lofi Chill para {actividad} {emoji_act} • {beneficio}",
+    f"Tus momentos de {actividad} {emoji_act} con música Lofi {categoria.capitalize()} • {beneficio}",
+    f"Lofi Chill Daily • {actividad} {emoji_act} y {beneficio.lower()}",
+    f"Música relajante tipo Lofi Chill • {beneficio} mientras {actividad.lower()}s {emoji_act}",
+    f"🌙 Sesión de Lofi Chill para {actividad} {emoji_act} • {beneficio}",
+    f"Lofi Vibes para {actividad} {emoji_act} • {beneficio} incluido"
     ]
     
     return random.choice(plantillas)
@@ -464,8 +357,8 @@ def crear_lista_reproduccion(gestor, duracion_horas=8):
     # Mezclar las canciones aleatoriamente
     random.shuffle(canciones)
     
-    # Calcular cuántas canciones necesitamos (estimando 3.5 minutos por canción)
-    canciones_necesarias = max(10, int((duracion_horas * 60) / 3.5))
+    # Calcular cuántas canciones necesitamos (estimando 4 minutos por canción)
+    canciones_necesarias = int((duracion_horas * 60) / 4)
     
     # Si no hay suficientes canciones, repetiremos algunas
     lista_reproduccion = []
@@ -478,34 +371,56 @@ def crear_lista_reproduccion(gestor, duracion_horas=8):
     logging.info(f"🎶 Lista de reproducción creada con {len(lista_reproduccion)} canciones")
     return lista_reproduccion
 
-def manejar_transmision(stream_data, youtube, gestor):
+def manejar_transmision(stream_data, youtube):
     try:
-        # Crear buffer de 10 minutos antes de iniciar
-        if not gestor.buffer.create_buffer(
-            stream_data['video']['local_path'],
-            [c['local_path'] for c in stream_data['playlist']]
-        ):
-            raise Exception("No se pudo crear el buffer de transmisión")
-        
         tiempo_inicio_ffmpeg = stream_data['start_time'] - timedelta(minutes=1)
         espera_ffmpeg = (tiempo_inicio_ffmpeg - datetime.utcnow()).total_seconds()
         
         if espera_ffmpeg > 0:
             logging.info(f"⏳ Esperando {espera_ffmpeg:.0f} segundos para iniciar FFmpeg...")
             time.sleep(espera_ffmpeg)
-
-        # Comando FFmpeg para transmitir el buffer
-        cmd = [
-            "ffmpeg",
-            "-loglevel", "warning",
-            "-re",
-            "-i", gestor.buffer.buffer_file,
-            "-c", "copy",
-            "-f", "flv",
-            stream_data['rtmp']
-        ]
         
-        logging.info("🔧 Iniciando FFmpeg con buffer pre-generado")
+        # Crear archivo de lista de reproducción para FFmpeg
+        lista_archivo = os.path.join(stream_data['video']['local_path'] + ".txt")
+        with open(lista_archivo, 'w') as f:
+            for cancion in stream_data['playlist']:
+                f.write(f"file '{cancion['local_path']}'\n")
+        
+        # Comando FFmpeg optimizado para YouTube Live
+# Comando FFmpeg optimizado con loop de video
+        cmd = [
+    "ffmpeg",
+    "-loglevel", "verbose",
+    "-rtbufsize", "250M",
+    "-re",
+    "-f", "concat",
+    "-safe", "0",
+    "-i", lista_archivo,
+    "-stream_loop", "-1",
+    "-i", stream_data['video']['local_path'],
+    "-map", "0:a:0",
+    "-map", "1:v:0",
+    "-ignore_unknown",  # <--- ¡Nuevo parámetro clave!
+    "-c:v", "libx264",
+    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,format=yuv420p",
+    "-preset", "ultrafast",
+    "-tune", "zerolatency",
+    "-x264-params", "keyint=60:min-keyint=60:scenecut=0",
+    "-b:v", "2500k",
+    "-maxrate", "3000k",
+    "-bufsize", "6000k",
+    "-r", "24",
+    "-g", "48",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
+    "-b:a", "96k",
+    "-ar", "44100",
+    "-ac", "1",
+    "-f", "flv",
+    stream_data['rtmp']
+]
+        
+        logging.info(f"🔧 Comando FFmpeg completo:\n{' '.join(cmd)}")
         
         proceso = subprocess.Popen(
             cmd,
@@ -513,23 +428,19 @@ def manejar_transmision(stream_data, youtube, gestor):
             stderr=subprocess.STDOUT,
             universal_newlines=True
         )
-
-        # Hilo para leer la salida de FFmpeg
+        
+        # Hilo para leer la salida de FFmpeg en tiempo real
         def leer_salida():
             for linea in proceso.stdout:
-                if "error" in linea.lower():
-                    logging.error(f"FFMPEG: {linea.strip()}")
-                elif "warning" in linea.lower():
-                    logging.warning(f"FFMPEG: {linea.strip()}")
-
+                logging.info(f"FFMPEG: {linea.strip()}")
+        
         threading.Thread(target=leer_salida, daemon=True).start()
-
-        logging.info("🟢 FFmpeg iniciado - Transmitiendo desde buffer...")
-
-        # Esperar activación del stream
-        max_checks = 15
+        
+        logging.info("🟢 FFmpeg iniciado - Estableciendo conexión RTMP...")
+        
+        max_checks = 10
         stream_activo = False
-        for i in range(max_checks):
+        for _ in range(max_checks):
             estado = youtube.obtener_estado_stream(stream_data['stream_id'])
             if estado == 'active':
                 logging.info("✅ Stream activo - Transicionando a testing")
@@ -537,41 +448,42 @@ def manejar_transmision(stream_data, youtube, gestor):
                     logging.info("🎬 Transmisión en VISTA PREVIA")
                     stream_activo = True
                 break
-            logging.info(f"🔄 Esperando activación ({i+1}/{max_checks})")
             time.sleep(5)
-
+        
         if not stream_activo:
             logging.error("❌ Stream no se activó a tiempo")
             proceso.terminate()
+            os.remove(lista_archivo)
             return
-
-        # Esperar hora programada
+        
         tiempo_restante = (stream_data['start_time'] - datetime.utcnow()).total_seconds()
         if tiempo_restante > 0:
             logging.info(f"⏳ Esperando {tiempo_restante:.0f}s para LIVE...")
             time.sleep(tiempo_restante)
-
+        
         if youtube.transicionar_estado(stream_data['broadcast_id'], 'live'):
             logging.info("🎥 Transmisión LIVE iniciada")
         else:
             raise Exception("No se pudo iniciar la transmisión")
-
-        # Monitorear transmisión
+        
         tiempo_inicio = datetime.utcnow()
         while (datetime.utcnow() - tiempo_inicio) < timedelta(hours=8):
             if proceso.poll() is not None:
                 logging.warning("⚡ Reconectando FFmpeg...")
+                proceso.terminate()
                 proceso = subprocess.Popen(cmd)
             time.sleep(15)
-
-        # Finalizar
+        
         proceso.terminate()
+        os.remove(lista_archivo)
         youtube.finalizar_transmision(stream_data['broadcast_id'])
-        logging.info("🛑 Transmisión finalizada correctamente")
+        logging.info("🛑 Transmisión finalizada y archivada correctamente")
 
     except Exception as e:
-        logging.error(f"Error en transmisión: {str(e)}")
+        logging.error(f"Error en hilo de transmisión: {str(e)}")
         youtube.finalizar_transmision(stream_data['broadcast_id'])
+        if 'lista_archivo' in locals() and os.path.exists(lista_archivo):
+            os.remove(lista_archivo)
 
 def ciclo_transmision():
     logging.info("🔄 Iniciando ciclo de transmisión...")
@@ -582,7 +494,6 @@ def ciclo_transmision():
     # Verificar que tenemos contenido
     if not gestor.medios['videos'] or not gestor.medios['musica']:
         logging.error("❌ No hay suficientes medios para transmitir")
-        time.sleep(60)
         return
     
     # Luego autenticar con YouTube
@@ -597,8 +508,8 @@ def ciclo_transmision():
     while True:
         try:
             if not current_stream:
-                # Seleccionar video aleatorio (sin repetir)
-                video = gestor.seleccionar_video_aleatorio()
+                # Seleccionar video aleatorio
+                video = random.choice([v for v in gestor.medios['videos'] if v['local_path']])
                 logging.info(f"🎥 Video seleccionado: {video['name']}")
                 
                 # Crear playlist de música
@@ -629,7 +540,7 @@ def ciclo_transmision():
                 # Iniciar transmisión en segundo plano
                 threading.Thread(
                     target=manejar_transmision,
-                    args=(current_stream, youtube, gestor),
+                    args=(current_stream, youtube),
                     daemon=True
                 ).start()
                 
@@ -637,16 +548,14 @@ def ciclo_transmision():
             
             else:
                 # Esperar hasta que sea hora de la próxima transmisión
-                tiempo_espera = (next_stream_time - datetime.utcnow()).total_seconds()
-                if tiempo_espera <= 0:
+                if datetime.utcnow() >= next_stream_time:
                     current_stream = None
                     logging.info("🔄 Preparando nueva transmisión...")
-                else:
-                    logging.info(f"⏳ Próxima transmisión en {tiempo_espera/60:.1f} minutos")
-                    time.sleep(min(60, tiempo_espera))
+                
+                time.sleep(15)
         
         except Exception as e:
-            logging.error(f"🔥 Error crítico en ciclo de transmisión: {str(e)}")
+            logging.error(f"🔥 Error crítico: {str(e)}")
             current_stream = None
             time.sleep(60)
 
